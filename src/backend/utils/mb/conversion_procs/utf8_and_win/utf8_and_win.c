@@ -74,6 +74,18 @@ static const pg_conv_map maps[] = {
 	{PG_WIN1258, &win1258_to_unicode_tree, &win1258_from_unicode_tree},
 };
 
+static uint32
+conv_utf8_to_win(uint32 code)
+{
+	ereport(WARNING, (errcode(ERRCODE_UNTRANSLATABLE_CHARACTER), errmsg("character with byte sequence 0x%x in encoding \"UTF8\" has no equivalent in encoding \"WIN\"", code)));
+	switch (code) {
+		case 0xE28496: return 0x23;
+		case 0xC2AB: return 0x22;
+		case 0xC2BB: return 0x22;
+		default: return 0x20;
+	}
+}
+
 Datum
 win_to_utf8(PG_FUNCTION_ARGS)
 {
@@ -124,7 +136,7 @@ utf8_to_win(PG_FUNCTION_ARGS)
 			UtfToLocal(src, len, dest,
 					   maps[i].map2,
 					   NULL, 0,
-					   NULL,
+					   conv_utf8_to_win,
 					   encoding);
 			PG_RETURN_VOID();
 		}
