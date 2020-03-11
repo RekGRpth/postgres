@@ -32,6 +32,7 @@
 #include "utils/jsonapi.h"
 #include "utils/typcache.h"
 #include "utils/syscache.h"
+#include "utils/guc.h"
 
 /*
  * The context of the parser is maintained by the recursive descent
@@ -105,6 +106,8 @@ static void datum_to_json(Datum val, bool is_null, StringInfo result,
 static void add_json(Datum val, bool is_null, StringInfo result,
 					 Oid val_type, bool key_scalar);
 static text *catenate_stringinfo_string(StringInfo buffer, const char *addon);
+
+static bool append;
 
 /* the null action object used for pure validation */
 static JsonSemAction nullSemAction =
@@ -1789,6 +1792,17 @@ composite_to_json(Datum composite, StringInfo result, bool use_line_feeds)
 		needsep = true;
 
 		attname = NameStr(att->attname);
+		if (append) {
+			HeapTuple typeTuple = SearchSysCache1(TYPEOID, ObjectIdGetDatum(att->atttypid));
+			StringInfoData buf;
+			initStringInfo(&buf);
+			appendStringInfo(&buf, "%s::", attname);
+			if (HeapTupleIsValid(typeTuple)) appendStringInfoString(&buf, NameStr(((Form_pg_type) GETSTRUCT(typeTuple))->typname));
+			else appendStringInfo(&buf, "%i", att->atttypid);
+			escape_json(result, buf.data);
+			ReleaseSysCache(typeTuple);
+			pfree(buf.data);
+		} else
 		escape_json(result, attname);
 		appendStringInfoChar(result, ':');
 
@@ -1848,6 +1862,7 @@ array_to_json(PG_FUNCTION_ARGS)
 {
 	Datum		array = PG_GETARG_DATUM(0);
 	StringInfo	result;
+	append = GetConfigOption("config.append_type_to_column_name", true, true) != NULL;
 
 	result = makeStringInfo();
 
@@ -1865,6 +1880,7 @@ array_to_json_pretty(PG_FUNCTION_ARGS)
 	Datum		array = PG_GETARG_DATUM(0);
 	bool		use_line_feeds = PG_GETARG_BOOL(1);
 	StringInfo	result;
+	append = GetConfigOption("config.append_type_to_column_name", true, true) != NULL;
 
 	result = makeStringInfo();
 
@@ -1881,6 +1897,7 @@ row_to_json(PG_FUNCTION_ARGS)
 {
 	Datum		array = PG_GETARG_DATUM(0);
 	StringInfo	result;
+	append = GetConfigOption("config.append_type_to_column_name", true, true) != NULL;
 
 	result = makeStringInfo();
 
@@ -1898,6 +1915,7 @@ row_to_json_pretty(PG_FUNCTION_ARGS)
 	Datum		array = PG_GETARG_DATUM(0);
 	bool		use_line_feeds = PG_GETARG_BOOL(1);
 	StringInfo	result;
+	append = GetConfigOption("config.append_type_to_column_name", true, true) != NULL;
 
 	result = makeStringInfo();
 
@@ -1917,6 +1935,7 @@ to_json(PG_FUNCTION_ARGS)
 	StringInfo	result;
 	JsonTypeCategory tcategory;
 	Oid			outfuncoid;
+	append = GetConfigOption("config.append_type_to_column_name", true, true) != NULL;
 
 	if (val_type == InvalidOid)
 		ereport(ERROR,
@@ -1945,6 +1964,7 @@ json_agg_transfn(PG_FUNCTION_ARGS)
 				oldcontext;
 	JsonAggState *state;
 	Datum		val;
+	append = GetConfigOption("config.append_type_to_column_name", true, true) != NULL;
 
 	if (!AggCheckCallContext(fcinfo, &aggcontext))
 	{
@@ -2046,6 +2066,7 @@ json_object_agg_transfn(PG_FUNCTION_ARGS)
 				oldcontext;
 	JsonAggState *state;
 	Datum		arg;
+	append = GetConfigOption("config.append_type_to_column_name", true, true) != NULL;
 
 	if (!AggCheckCallContext(fcinfo, &aggcontext))
 	{

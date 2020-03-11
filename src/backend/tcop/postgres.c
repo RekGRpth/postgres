@@ -992,6 +992,8 @@ exec_simple_query(const char *query_string)
 	bool		use_implicit_block;
 	char		msec_str[32];
 
+	SetConfigOption("config.append_type_to_column_name", NULL, PGC_USERSET, PGC_S_SESSION);
+
 	/*
 	 * Report query to various monitoring facilities.
 	 */
@@ -1958,6 +1960,8 @@ exec_execute_message(const char *portal_name, long max_rows)
 	bool		execute_is_fetch;
 	bool		was_logged = false;
 	char		msec_str[32];
+
+	SetConfigOption("config.append_type_to_column_name", NULL, PGC_USERSET, PGC_S_SESSION);
 
 	/* Adjust destination to tell printtup.c what to do */
 	dest = whereToSendOutput;
