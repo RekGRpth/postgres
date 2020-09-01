@@ -1996,7 +1996,7 @@ pg_dumpall -p 5432 | psql -d postgres -p 5433
     be migrated in-place from one major <productname>PostgreSQL</productname>
     version to another.  Upgrades can be performed in minutes,
     particularly with <option>--link</option> mode.  It requires steps similar to
-    <application>pg_dumpall</application> above, e.g.  starting/stopping the server,
+    <application>pg_dumpall</application> above, e.g.,  starting/stopping the server,
     running <application>initdb</application>.  The <application>pg_upgrade</application> <link
     linkend="pgupgrade">documentation</link> outlines the necessary steps.
    </para>
@@ -2324,8 +2324,10 @@ pg_dumpall -p 5432 | psql -d postgres -p 5433
    The certificates of <quote>intermediate</quote> certificate authorities
    can also be appended to the file.  Doing this avoids the necessity of
    storing intermediate certificates on clients, assuming the root and
-   intermediate certificates were created with <literal>v3_ca</literal>
-   extensions.  This allows easier expiration of intermediate certificates.
+   intermediate certificates were created with <literal>v3_ca </literal>
+   extensions.  (This sets the certificate's basic constraint of
+   <literal>CA</literal> to <literal>true</literal>.)
+   This allows easier expiration of intermediate certificates.
   </para>
 
   <para>
