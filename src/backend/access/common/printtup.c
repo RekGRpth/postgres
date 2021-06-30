@@ -22,6 +22,9 @@
 #include "utils/lsyscache.h"
 #include "utils/memdebug.h"
 #include "utils/memutils.h"
+#include "utils/guc.h"
+#include "utils/syscache.h"
+#include "catalog/pg_type.h"
 
 
 static void printtup_startup(DestReceiver *self, int operation,
@@ -69,6 +72,8 @@ typedef struct
 	StringInfoData buf;			/* output buffer (*not* in tmpcontext) */
 	MemoryContext tmpcontext;	/* Memory context for per-row workspace */
 } DR_printtup;
+
+static bool append;
 
 /* ----------------
  *		Initialize: create a DestReceiver for printtup
@@ -132,6 +137,7 @@ printtup_startup(DestReceiver *self, int operation, TupleDesc typeinfo)
 {
 	DR_printtup *myState = (DR_printtup *) self;
 	Portal		portal = myState->portal;
+	append = GetConfigOption("config.append_type_to_column_name", true, true) != NULL;
 
 	/*
 	 * Create I/O buffer to be used for all messages.  This cannot be inside
@@ -236,6 +242,7 @@ SendRowDescriptionCols_3(StringInfo buf, TupleDesc typeinfo, List *targetlist, i
 	 * character set overhead.
 	 */
 	enlargeStringInfo(buf, (NAMEDATALEN * MAX_CONVERSION_GROWTH /* attname */
+							+ (append ? NAMEDATALEN * MAX_CONVERSION_GROWTH + sizeof("::") - 1 : 0)
 							+ sizeof(Oid)	/* resorigtbl */
 							+ sizeof(AttrNumber)	/* resorigcol */
 							+ sizeof(Oid)	/* atttypid */
@@ -283,6 +290,17 @@ SendRowDescriptionCols_3(StringInfo buf, TupleDesc typeinfo, List *targetlist, i
 		else
 			format = 0;
 
+		if (append) {
+			HeapTuple typeTuple = SearchSysCache1(TYPEOID, ObjectIdGetDatum(att->atttypid));
+			StringInfoData buf_;
+			initStringInfo(&buf_);
+			appendStringInfo(&buf_, "%s::", NameStr(att->attname));
+			if (HeapTupleIsValid(typeTuple)) appendStringInfoString(&buf_, NameStr(((Form_pg_type) GETSTRUCT(typeTuple))->typname));
+			else appendStringInfo(&buf_, "%i", att->atttypid);
+			pq_writestring(buf, buf_.data);
+			ReleaseSysCache(typeTuple);
+			pfree(buf_.data);
+		} else
 		pq_writestring(buf, NameStr(att->attname));
 		pq_writeint32(buf, resorigtbl);
 		pq_writeint16(buf, resorigcol);
@@ -311,6 +329,17 @@ SendRowDescriptionCols_2(StringInfo buf, TupleDesc typeinfo, List *targetlist, i
 		/* If column is a domain, send the base type and typmod instead */
 		atttypid = getBaseTypeAndTypmod(atttypid, &atttypmod);
 
+		if (append) {
+			HeapTuple typeTuple = SearchSysCache1(TYPEOID, ObjectIdGetDatum(att->atttypid));
+			StringInfoData buf_;
+			initStringInfo(&buf_);
+			appendStringInfo(&buf_, "%s::", NameStr(att->attname));
+			if (HeapTupleIsValid(typeTuple)) appendStringInfoString(&buf_, NameStr(((Form_pg_type) GETSTRUCT(typeTuple))->typname));
+			else appendStringInfo(&buf_, "%i", att->atttypid);
+			pq_sendstring(buf, buf_.data);
+			ReleaseSysCache(typeTuple);
+			pfree(buf_.data);
+		} else
 		pq_sendstring(buf, NameStr(att->attname));
 		/* column ID only info appears in protocol 3.0 and up */
 		pq_sendint32(buf, atttypid);
