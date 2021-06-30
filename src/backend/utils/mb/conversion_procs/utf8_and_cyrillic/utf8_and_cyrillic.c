@@ -38,6 +38,18 @@ PG_FUNCTION_INFO_V1(koi8u_to_utf8);
  * ----------
  */
 
+static uint32
+conv_utf8_to_koi8(uint32 code)
+{
+	ereport(WARNING, (errcode(ERRCODE_UNTRANSLATABLE_CHARACTER), errmsg("character with byte sequence 0x%x in encoding \"UTF8\" has no equivalent in encoding \"KOI8\"", code)));
+	switch (code) {
+		case 0xE28496: return 0x23;
+		case 0xC2AB: return 0x22;
+		case 0xC2BB: return 0x22;
+		default: return 0x20;
+	}
+}
+
 Datum
 utf8_to_koi8r(PG_FUNCTION_ARGS)
 {
@@ -50,7 +62,7 @@ utf8_to_koi8r(PG_FUNCTION_ARGS)
 	UtfToLocal(src, len, dest,
 			   &koi8r_from_unicode_tree,
 			   NULL, 0,
-			   NULL,
+			   conv_utf8_to_koi8,
 			   PG_KOI8R);
 
 	PG_RETURN_VOID();
@@ -86,7 +98,7 @@ utf8_to_koi8u(PG_FUNCTION_ARGS)
 	UtfToLocal(src, len, dest,
 			   &koi8u_from_unicode_tree,
 			   NULL, 0,
-			   NULL,
+			   conv_utf8_to_koi8,
 			   PG_KOI8U);
 
 	PG_RETURN_VOID();
