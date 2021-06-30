@@ -26,6 +26,7 @@
 #include "utils/jsonfuncs.h"
 #include "utils/lsyscache.h"
 #include "utils/typcache.h"
+#include "utils/syscache.h"
 #include "utils/guc.h"
 
 typedef enum					/* type categories for datum_to_json */
