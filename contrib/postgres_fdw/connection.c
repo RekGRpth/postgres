@@ -315,7 +315,7 @@ connect_pg_server(ForeignServer *server, UserMapping *user)
 					 errhint("Target server's authentication method must be changed or password_required=false set in the user mapping attributes.")));
 
 		/* Prepare new session for use */
-		configure_remote_session(conn);
+//		configure_remote_session(conn);
 
 		pfree(keywords);
 		pfree(values);
