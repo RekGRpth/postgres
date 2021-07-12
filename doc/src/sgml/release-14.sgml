@@ -720,13 +720,13 @@ Author: Peter Geoghegan <pg@bowt.ie>
 -->
 
        <para>
-        Allow vacuum to eagerly add newly deleted btree pages to the free
+        Allow vacuum to more eagerly add deleted btree pages to the free
         space map (Peter Geoghegan)
        </para>
 
        <para>
-        Previously vacuum could only place preexisting deleted pages in
-        the free space map.
+        Previously vacuum could only add pages to the free space map
+        that were marked as deleted by previous vacuums.
        </para>
       </listitem>
 
@@ -1374,35 +1374,6 @@ Author: Alvaro Herrera <alvherre@alvh.no-ip.org>
 
       <listitem>
 <!--
-Author: Fujii Masao <fujii@postgresql.org>
-2020-08-19 [3e98c0baf] Add pg_backend_memory_contexts system view.
-Author: Fujii Masao <fujii@postgresql.org>
-2020-08-26 [29dd6d8bc] Prevent non-superusers from reading pg_backend_memory_co
--->
-
-       <para>
-        Add system view <link
-        linkend="view-pg-backend-memory-contexts"><structname>pg_backend_memory_contexts</structname></link>
-        to report session memory usage (Atsushi Torikoshi, Fujii Masao)
-       </para>
-      </listitem>
-
-      <listitem>
-<!--
-Author: Fujii Masao <fujii@postgresql.org>
-2021-04-06 [43620e328] Add function to log the memory contexts of specified bac
--->
-
-       <para>
-        Add function <link
-        linkend="functions-admin-signal"><function>pg_log_backend_memory_contexts()</function></link>
-        to output the memory contexts of arbitrary backends (Atsushi
-        Torikoshi)
-       </para>
-      </listitem>
-
-      <listitem>
-<!--
 Author: Stephen Frost <sfrost@snowman.net>
 2021-03-16 [94d13d474] Improve logging of auto-vacuum and auto-analyze
 -->
@@ -1450,50 +1421,10 @@ Author: Michael Paquier <michael@paquier.xyz>
 -->
 
        <para>
-        Add view <link
+        Add system view <link
         linkend="copy-progress-reporting"><structname>pg_stat_progress_copy</structname></link>
         to report <command>COPY</command> progress (Josef Šimánek,
         Matthias van de Meent)
-       </para>
-      </listitem>
-
-      <listitem>
-<!--
-Author: Magnus Hagander <magnus@hagander.net>
-2021-01-17 [960869da0] Add pg_stat_database counters for sessions and session t
--->
-
-       <para>
-        Add session statistics to the <link
-        linkend="monitoring-pg-stat-database-view"><structname>pg_stat_database</structname></link>
-        system view (Laurenz Albe)
-       </para>
-      </listitem>
-
-      <listitem>
-<!--
-Author: Fujii Masao <fujii@postgresql.org>
-2020-07-20 [d05b172a7] Add generic_plans and custom_plans fields into pg_prepar
--->
-
-       <para>
-        Add columns to <link
-        linkend="view-pg-prepared-statements"><structname>pg_prepared_statements</structname></link>
-        to report generic and custom plan counts (Atsushi Torikoshi,
-        Kyotaro Horiguchi)
-       </para>
-      </listitem>
-
-      <listitem>
-<!--
-Author: Fujii Masao <fujii@postgresql.org>
-2021-02-15 [46d6e5f56] Display the time when the process started waiting for th
--->
-
-       <para>
-        Add lock wait start time to <link
-        linkend="view-pg-locks"><structname>pg_locks</structname></link>
-        (Atsushi Torikoshi)
        </para>
       </listitem>
 
@@ -1537,6 +1468,75 @@ Author: Amit Kapila <akapila@postgresql.org>
         The function <link
         linkend="monitoring-stats-functions"><function>pg_stat_reset_replication_slot()</function></link>
         resets slot statistics.
+       </para>
+      </listitem>
+
+      <listitem>
+<!--
+Author: Fujii Masao <fujii@postgresql.org>
+2020-08-19 [3e98c0baf] Add pg_backend_memory_contexts system view.
+Author: Fujii Masao <fujii@postgresql.org>
+2020-08-26 [29dd6d8bc] Prevent non-superusers from reading pg_backend_memory_co
+-->
+
+       <para>
+        Add system view <link
+        linkend="view-pg-backend-memory-contexts"><structname>pg_backend_memory_contexts</structname></link>
+        to report session memory usage (Atsushi Torikoshi, Fujii Masao)
+       </para>
+      </listitem>
+
+      <listitem>
+<!--
+Author: Fujii Masao <fujii@postgresql.org>
+2021-04-06 [43620e328] Add function to log the memory contexts of specified bac
+-->
+
+       <para>
+        Add function <link
+        linkend="functions-admin-signal"><function>pg_log_backend_memory_contexts()</function></link>
+        to output the memory contexts of arbitrary backends (Atsushi
+        Torikoshi)
+       </para>
+      </listitem>
+
+      <listitem>
+<!--
+Author: Magnus Hagander <magnus@hagander.net>
+2021-01-17 [960869da0] Add pg_stat_database counters for sessions and session t
+-->
+
+       <para>
+        Add session statistics to the <link
+        linkend="monitoring-pg-stat-database-view"><structname>pg_stat_database</structname></link>
+        system view (Laurenz Albe)
+       </para>
+      </listitem>
+
+      <listitem>
+<!--
+Author: Fujii Masao <fujii@postgresql.org>
+2020-07-20 [d05b172a7] Add generic_plans and custom_plans fields into pg_prepar
+-->
+
+       <para>
+        Add columns to <link
+        linkend="view-pg-prepared-statements"><structname>pg_prepared_statements</structname></link>
+        to report generic and custom plan counts (Atsushi Torikoshi,
+        Kyotaro Horiguchi)
+       </para>
+      </listitem>
+
+      <listitem>
+<!--
+Author: Fujii Masao <fujii@postgresql.org>
+2021-02-15 [46d6e5f56] Display the time when the process started waiting for th
+-->
+
+       <para>
+        Add lock wait start time to <link
+        linkend="view-pg-locks"><structname>pg_locks</structname></link>
+        (Atsushi Torikoshi)
        </para>
       </listitem>
 
