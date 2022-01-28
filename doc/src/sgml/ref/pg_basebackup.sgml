@@ -237,7 +237,8 @@ PostgreSQL documentation
         <literal>server:/some/path</literal>, the backup will be stored on
         the machine where the server is running in the
         <literal>/some/path</literal> directory. Storing a backup on the
-        server requires superuser privileges. If the target is set to
+        server requires superuser privileges or being granted the
+        <literal>pg_write_server_files</literal> role. If the target is set to
         <literal>blackhole</literal>, the contents are discarded and not
         stored anywhere. This should only be used for testing purposes, as you
         will not end up with an actual backup.
@@ -428,8 +429,11 @@ PostgreSQL documentation
        </para>
        <para>
         When the tar format is used, the suffix <filename>.gz</filename> will
-        automatically be added to all tar filenames. Compression is not
-        available in plain format.
+        automatically be added to all tar filenames. When the plain format is
+        used, client-side compression may not be specified, but it is
+        still possible to request server-side compression. If this is done,
+        the server will compress the backup for transmission, and the
+        client will decompress and extract it.
        </para>
       </listitem>
      </varlistentry>
