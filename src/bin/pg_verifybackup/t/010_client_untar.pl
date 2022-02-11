@@ -1,9 +1,8 @@
 # Copyright (c) 2021-2022, PostgreSQL Global Development Group
 
-# This test case aims to verify that server-side backups and server-side
-# backup compression work properly, and it also aims to verify that
-# pg_verifybackup can verify a base backup that didn't start out in plain
-# format.
+# This test case aims to verify that client-side backup compression work
+# properly, and it also aims to verify that pg_verifybackup can verify a base
+# backup that didn't start out in plain format.
 
 use strict;
 use warnings;
@@ -17,8 +16,7 @@ my $primary = PostgreSQL::Test::Cluster->new('primary');
 $primary->init(allows_streaming => 1);
 $primary->start;
 
-my $backup_path = $primary->backup_dir . '/server-backup';
-my $real_backup_path = PostgreSQL::Test::Utils::perl2host($backup_path);
+my $backup_path = $primary->backup_dir . '/client-backup';
 my $extract_path = $primary->backup_dir . '/extracted-backup';
 
 my @test_configuration = (
@@ -30,7 +28,7 @@ my @test_configuration = (
 	},
 	{
 		'compression_method' => 'gzip',
-		'backup_flags' => ['--compress', 'server-gzip'],
+		'backup_flags' => ['--compress', 'client-gzip:5'],
 		'backup_archive' => 'base.tar.gz',
 		'decompress_program' => $ENV{'GZIP_PROGRAM'},
 		'decompress_flags' => [ '-d' ],
@@ -38,10 +36,11 @@ my @test_configuration = (
 	},
 	{
 		'compression_method' => 'lz4',
-		'backup_flags' => ['--compress', 'server-lz4'],
+		'backup_flags' => ['--compress', 'client-lz4:5'],
 		'backup_archive' => 'base.tar.lz4',
 		'decompress_program' => $ENV{'LZ4'},
-		'decompress_flags' => [ '-d', '-m'],
+		'decompress_flags' => [ '-d' ],
+		'output_file' => 'base.tar',
 		'enabled' => check_pg_config("#define HAVE_LIBLZ4 1")
 	}
 );
@@ -57,14 +56,13 @@ for my $tc (@test_configuration)
 			if exists $tc->{'decompress_program'} &&
 			!defined $tc->{'decompress_program'};
 
-		# Take a server-side backup.
-		my @backup = (
-			'pg_basebackup', '--no-sync', '-cfast', '--target',
-			"server:$real_backup_path", '-Xfetch'
-		);
+		# Take a client-side backup.
+		my @backup      = (
+			'pg_basebackup', '-D', $backup_path,
+			'-Xfetch', '--no-sync', '-cfast', '-Ft');
 		push @backup, @{$tc->{'backup_flags'}};
 		$primary->command_ok(\@backup,
-							 "server side backup, compression $method");
+							 "client side backup, compression $method");
 
 
 		# Verify that the we got the files we expected.
@@ -82,6 +80,8 @@ for my $tc (@test_configuration)
 			push @decompress, @{$tc->{'decompress_flags'}}
 				if $tc->{'decompress_flags'};
 			push @decompress, $backup_path . '/' . $tc->{'backup_archive'};
+			push @decompress, $backup_path . '/' . $tc->{'output_file'}
+				if $tc->{'output_file'};
 			system_or_bail(@decompress);
 		}
 
@@ -105,8 +105,7 @@ for my $tc (@test_configuration)
 		}
 
 		# Cleanup.
-		unlink($backup_path . '/backup_manifest');
-		unlink($backup_path . '/base.tar');
 		rmtree($extract_path);
+		rmtree($backup_path);
 	}
 }
