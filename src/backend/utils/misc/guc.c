@@ -3762,7 +3762,7 @@ static struct config_real ConfigureNamesReal[] =
 			GUC_EXPLAIN
 		},
 		&hash_mem_multiplier,
-		1.0, 1.0, 1000.0,
+		2.0, 1.0, 1000.0,
 		NULL, NULL, NULL
 	},
 
@@ -10205,8 +10205,6 @@ show_all_file_settings(PG_FUNCTION_ARGS)
 		/* shove row into tuplestore */
 		tuplestore_putvalues(tupstore, tupdesc, values, nulls);
 	}
-
-	tuplestore_donestoring(tupstore);
 
 	return (Datum) 0;
 }
