@@ -1208,7 +1208,8 @@ CreateBackupStreamer(char *archive_name, char *spclocation,
 	bool		is_tar,
 				is_tar_gz,
 				is_tar_lz4,
-				is_tar_zstd;
+				is_tar_zstd,
+				is_compressed_tar;
 	bool		must_parse_archive;
 	int			archive_name_len = strlen(archive_name);
 
@@ -1223,17 +1224,35 @@ CreateBackupStreamer(char *archive_name, char *spclocation,
 	is_tar = (archive_name_len > 4 &&
 			  strcmp(archive_name + archive_name_len - 4, ".tar") == 0);
 
-	/* Is this a gzip archive? */
-	is_tar_gz = (archive_name_len > 8 &&
-				 strcmp(archive_name + archive_name_len - 3, ".gz") == 0);
+	/* Is this a .tar.gz archive? */
+	is_tar_gz = (archive_name_len > 7 &&
+				 strcmp(archive_name + archive_name_len - 7, ".tar.gz") == 0);
 
-	/* Is this a LZ4 archive? */
+	/* Is this a .tar.lz4 archive? */
 	is_tar_lz4 = (archive_name_len > 8 &&
-				  strcmp(archive_name + archive_name_len - 4, ".lz4") == 0);
+				  strcmp(archive_name + archive_name_len - 8, ".tar.lz4") == 0);
 
-	/* Is this a ZSTD archive? */
+	/* Is this a .tar.zst archive? */
 	is_tar_zstd = (archive_name_len > 8 &&
-				   strcmp(archive_name + archive_name_len - 4, ".zst") == 0);
+				   strcmp(archive_name + archive_name_len - 8, ".tar.zst") == 0);
+
+	/* Is this any kind of compressed tar? */
+	is_compressed_tar = is_tar_gz || is_tar_lz4 || is_tar_zstd;
+
+	/*
+	 * Injecting the manifest into a compressed tar file would be possible if
+	 * we decompressed it, parsed the tarfile, generated a new tarfile, and
+	 * recompressed it, but compressing and decompressing multiple times just
+	 * to inject the manifest seems inefficient enough that it's probably not
+	 * what the user wants. So, instead, reject the request and tell the user
+	 * to specify something more reasonable.
+	 */
+	if (inject_manifest && is_compressed_tar)
+	{
+		pg_log_error("cannot inject manifest into a compressed tarfile");
+		pg_log_info("use client-side compression, send the output to a directory rather than standard output, or use --no-manifest");
+		exit(1);
+	}
 
 	/*
 	 * We have to parse the archive if (1) we're suppose to extract it, or if
@@ -1244,8 +1263,7 @@ CreateBackupStreamer(char *archive_name, char *spclocation,
 		(spclocation == NULL && writerecoveryconf));
 
 	/* At present, we only know how to parse tar archives. */
-	if (must_parse_archive && !is_tar && !is_tar_gz && !is_tar_lz4
-		&& !is_tar_zstd)
+	if (must_parse_archive && !is_tar && !is_compressed_tar)
 	{
 		pg_log_error("unable to parse archive: %s", archive_name);
 		pg_log_info("only tar archives can be parsed");
