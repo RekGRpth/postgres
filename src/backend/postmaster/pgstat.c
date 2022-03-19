@@ -223,6 +223,12 @@ static HTAB *pgStatTabHash = NULL;
 static HTAB *pgStatFunctions = NULL;
 
 /*
+ * Indicates if backend has some relation stats that it hasn't yet
+ * sent to the collector.
+ */
+static bool have_relation_stats = false;
+
+/*
  * Indicates if backend has some function stats that it hasn't yet
  * sent to the collector.
  */
@@ -265,7 +271,7 @@ typedef struct TwoPhasePgStatRecord
 	PgStat_Counter deleted_pre_truncdrop;
 	Oid			t_id;			/* table's OID */
 	bool		t_shared;		/* is it a shared catalog? */
-	bool		t_truncdropped;	/* was the relation truncated/dropped? */
+	bool		t_truncdropped; /* was the relation truncated/dropped? */
 } TwoPhasePgStatRecord;
 
 /*
@@ -338,8 +344,12 @@ static bool pgstat_db_requested(Oid databaseid);
 static PgStat_StatReplSlotEntry *pgstat_get_replslot_entry(NameData name, bool create_it);
 static void pgstat_reset_replslot(PgStat_StatReplSlotEntry *slotstats, TimestampTz ts);
 
+static void pgstat_send_tabstats(TimestampTz now, bool disconnect);
 static void pgstat_send_tabstat(PgStat_MsgTabstat *tsmsg, TimestampTz now);
+static void pgstat_update_dbstats(PgStat_MsgTabstat *tsmsg, TimestampTz now);
 static void pgstat_send_funcstats(void);
+static void pgstat_wal_initialize(void);
+static bool pgstat_wal_pending(void);
 static void pgstat_send_slru(void);
 static HTAB *pgstat_collect_oids(Oid catalogid, AttrNumber anum_oid);
 static bool pgstat_should_report_connstat(void);
@@ -866,31 +876,18 @@ allow_immediate_pgstat_restart(void)
 void
 pgstat_report_stat(bool disconnect)
 {
-	/* we assume this inits to all zeroes: */
-	static const PgStat_TableCounts all_zeroes;
 	static TimestampTz last_report = 0;
 
 	TimestampTz now;
-	PgStat_MsgTabstat regular_msg;
-	PgStat_MsgTabstat shared_msg;
-	TabStatusArray *tsa;
-	int			i;
 
 	pgstat_assert_is_up();
 
 	/*
 	 * Don't expend a clock check if nothing to do.
-	 *
-	 * To determine whether any WAL activity has occurred since last time, not
-	 * only the number of generated WAL records but also the numbers of WAL
-	 * writes and syncs need to be checked. Because even transaction that
-	 * generates no WAL records can write or sync WAL data when flushing the
-	 * data pages.
 	 */
-	if ((pgStatTabList == NULL || pgStatTabList->tsa_used == 0) &&
+	if (!have_relation_stats &&
 		pgStatXactCommit == 0 && pgStatXactRollback == 0 &&
-		pgWalUsage.wal_records == prevWalUsage.wal_records &&
-		WalStats.m_wal_write == 0 && WalStats.m_wal_sync == 0 &&
+		!pgstat_wal_pending() &&
 		!have_function_stats && !disconnect)
 		return;
 
@@ -907,6 +904,32 @@ pgstat_report_stat(bool disconnect)
 
 	if (disconnect)
 		pgstat_report_disconnect(MyDatabaseId);
+
+	/* First, send relation statistics */
+	pgstat_send_tabstats(now, disconnect);
+
+	/* Now, send function statistics */
+	pgstat_send_funcstats();
+
+	/* Send WAL statistics */
+	pgstat_send_wal(true);
+
+	/* Finally send SLRU statistics */
+	pgstat_send_slru();
+}
+
+/*
+ * Subroutine for pgstat_report_stat: Send relation statistics
+ */
+static void
+pgstat_send_tabstats(TimestampTz now, bool disconnect)
+{
+	/* we assume this inits to all zeroes: */
+	static const PgStat_TableCounts all_zeroes;
+	PgStat_MsgTabstat regular_msg;
+	PgStat_MsgTabstat shared_msg;
+	TabStatusArray *tsa;
+	int			i;
 
 	/*
 	 * Destroy pgStatTabHash before we start invalidating PgStat_TableEntry
@@ -980,18 +1003,11 @@ pgstat_report_stat(bool disconnect)
 	if (shared_msg.m_nentries > 0)
 		pgstat_send_tabstat(&shared_msg, now);
 
-	/* Now, send function statistics */
-	pgstat_send_funcstats();
-
-	/* Send WAL statistics */
-	pgstat_send_wal(true);
-
-	/* Finally send SLRU statistics */
-	pgstat_send_slru();
+	have_relation_stats = false;
 }
 
 /*
- * Subroutine for pgstat_report_stat: finish and send a tabstat message
+ * Subroutine for pgstat_send_tabstats: finish and send one tabstat message
  */
 static void
 pgstat_send_tabstat(PgStat_MsgTabstat *tsmsg, TimestampTz now)
@@ -1007,6 +1023,23 @@ pgstat_send_tabstat(PgStat_MsgTabstat *tsmsg, TimestampTz now)
 	 * Report and reset accumulated xact commit/rollback and I/O timings
 	 * whenever we send a normal tabstat message
 	 */
+	pgstat_update_dbstats(tsmsg, now);
+
+	n = tsmsg->m_nentries;
+	len = offsetof(PgStat_MsgTabstat, m_entry[0]) +
+		n * sizeof(PgStat_TableEntry);
+
+	pgstat_setheader(&tsmsg->m_hdr, PGSTAT_MTYPE_TABSTAT);
+	pgstat_send(tsmsg, len);
+}
+
+/*
+ * Subroutine for pgstat_send_tabstat: Handle xact commit/rollback and I/O
+ * timings.
+ */
+static void
+pgstat_update_dbstats(PgStat_MsgTabstat *tsmsg, TimestampTz now)
+{
 	if (OidIsValid(tsmsg->m_databaseid))
 	{
 		tsmsg->m_xact_commit = pgStatXactCommit;
@@ -1052,13 +1085,6 @@ pgstat_send_tabstat(PgStat_MsgTabstat *tsmsg, TimestampTz now)
 		tsmsg->m_active_time = 0;
 		tsmsg->m_idle_in_xact_time = 0;
 	}
-
-	n = tsmsg->m_nentries;
-	len = offsetof(PgStat_MsgTabstat, m_entry[0]) +
-		n * sizeof(PgStat_TableEntry);
-
-	pgstat_setheader(&tsmsg->m_hdr, PGSTAT_MTYPE_TABSTAT);
-	pgstat_send(tsmsg, len);
 }
 
 /*
@@ -2179,6 +2205,8 @@ get_tabstat_entry(Oid rel_id, bool isshared)
 
 	pgstat_assert_is_up();
 
+	have_relation_stats = true;
+
 	/*
 	 * Create hash table if we don't have it already.
 	 */
@@ -2622,11 +2650,11 @@ AtEOSubXact_PgStat_Relations(PgStat_SubXactStatus *xact_state, bool isCommit, in
 			{
 				/*
 				 * When there isn't an immediate parent state, we can just
-				 * reuse the record instead of going through a
-				 * palloc/pfree pushup (this works since it's all in
-				 * TopTransactionContext anyway).  We have to re-link it
-				 * into the parent level, though, and that might mean
-				 * pushing a new entry into the pgStatXactStack.
+				 * reuse the record instead of going through a palloc/pfree
+				 * pushup (this works since it's all in TopTransactionContext
+				 * anyway).  We have to re-link it into the parent level,
+				 * though, and that might mean pushing a new entry into the
+				 * pgStatXactStack.
 				 */
 				PgStat_SubXactStatus *upper_xact_state;
 
@@ -3135,12 +3163,7 @@ pgstat_initialize(void)
 {
 	Assert(!pgstat_is_initialized);
 
-	/*
-	 * Initialize prevWalUsage with pgWalUsage so that pgstat_send_wal() can
-	 * calculate how much pgWalUsage counters are increased by subtracting
-	 * prevWalUsage from pgWalUsage.
-	 */
-	prevWalUsage = pgWalUsage;
+	pgstat_wal_initialize();
 
 	/* Set up a process-exit hook to clean up */
 	before_shmem_exit(pgstat_shutdown_hook, 0);
@@ -3352,9 +3375,9 @@ pgstat_send_wal(bool force)
 		WalUsage	walusage;
 
 		/*
-		 * Calculate how much WAL usage counters were increased by
-		 * subtracting the previous counters from the current ones. Fill the
-		 * results in WAL stats message.
+		 * Calculate how much WAL usage counters were increased by subtracting
+		 * the previous counters from the current ones. Fill the results in
+		 * WAL stats message.
 		 */
 		MemSet(&walusage, 0, sizeof(WalUsage));
 		WalUsageAccumDiff(&walusage, &pgWalUsage, &prevWalUsage);
@@ -3380,6 +3403,32 @@ pgstat_send_wal(bool force)
 	 * Clear out the statistics buffer, so it can be re-used.
 	 */
 	MemSet(&WalStats, 0, sizeof(WalStats));
+}
+
+static void
+pgstat_wal_initialize(void)
+{
+	/*
+	 * Initialize prevWalUsage with pgWalUsage so that pgstat_send_wal() can
+	 * calculate how much pgWalUsage counters are increased by subtracting
+	 * prevWalUsage from pgWalUsage.
+	 */
+	prevWalUsage = pgWalUsage;
+}
+
+/*
+ * To determine whether any WAL activity has occurred since last time, not
+ * only the number of generated WAL records but also the numbers of WAL
+ * writes and syncs need to be checked. Because even transaction that
+ * generates no WAL records can write or sync WAL data when flushing the
+ * data pages.
+ */
+static bool
+pgstat_wal_pending(void)
+{
+	return pgWalUsage.wal_records != prevWalUsage.wal_records ||
+		WalStats.m_wal_write != 0 ||
+		WalStats.m_wal_sync != 0;
 }
 
 /* ----------
@@ -4211,7 +4260,7 @@ pgstat_read_statsfiles(Oid onlydb, bool permanent, bool deep)
 	bool		found;
 	const char *statfile = permanent ? PGSTAT_STAT_PERMANENT_FILENAME : pgstat_stat_filename;
 	int			i;
-	TimestampTz	ts;
+	TimestampTz ts;
 
 	/*
 	 * The tables will live in pgStatLocalContext.
@@ -4473,7 +4522,7 @@ pgstat_read_statsfiles(Oid onlydb, bool permanent, bool deep)
 					PgStat_StatSubEntry *subentry;
 
 					if (fread(&subbuf, 1, sizeof(PgStat_StatSubEntry), fpin)
-							!= sizeof(PgStat_StatSubEntry))
+						!= sizeof(PgStat_StatSubEntry))
 					{
 						ereport(pgStatRunningInCollector ? LOG : WARNING,
 								(errmsg("corrupted statistics file \"%s\"",
@@ -5250,6 +5299,7 @@ pgstat_recv_tabstat(PgStat_MsgTabstat *msg, int len)
 			tabentry->tuples_updated += tabmsg->t_counts.t_tuples_updated;
 			tabentry->tuples_deleted += tabmsg->t_counts.t_tuples_deleted;
 			tabentry->tuples_hot_updated += tabmsg->t_counts.t_tuples_hot_updated;
+
 			/*
 			 * If table was truncated/dropped, first reset the live/dead
 			 * counters.
@@ -5412,7 +5462,10 @@ pgstat_recv_resetsharedcounter(PgStat_MsgResetsharedcounter *msg, int len)
 {
 	if (msg->m_resettarget == RESET_BGWRITER)
 	{
-		/* Reset the global, bgwriter and checkpointer statistics for the cluster. */
+		/*
+		 * Reset the global, bgwriter and checkpointer statistics for the
+		 * cluster.
+		 */
 		memset(&globalStats, 0, sizeof(globalStats));
 		globalStats.bgwriter.stat_reset_timestamp = GetCurrentTimestamp();
 	}
