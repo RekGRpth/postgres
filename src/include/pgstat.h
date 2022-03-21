@@ -1102,43 +1102,46 @@ extern void pgstat_initialize(void);
 extern PgStat_TableStatus *find_tabstat_entry(Oid rel_id);
 extern PgStat_BackendFunctionEntry *find_funcstat_entry(Oid func_id);
 
-extern void pgstat_initstats(Relation rel);
+extern void pgstat_relation_init(Relation rel);
+
+#define pgstat_relation_should_count(rel)                           \
+	(likely((rel)->pgstat_info != NULL))
 
 /* nontransactional event counts are simple enough to inline */
 
 #define pgstat_count_heap_scan(rel)									\
 	do {															\
-		if ((rel)->pgstat_info != NULL)								\
+		if (pgstat_relation_should_count(rel))						\
 			(rel)->pgstat_info->t_counts.t_numscans++;				\
 	} while (0)
 #define pgstat_count_heap_getnext(rel)								\
 	do {															\
-		if ((rel)->pgstat_info != NULL)								\
+		if (pgstat_relation_should_count(rel))						\
 			(rel)->pgstat_info->t_counts.t_tuples_returned++;		\
 	} while (0)
 #define pgstat_count_heap_fetch(rel)								\
 	do {															\
-		if ((rel)->pgstat_info != NULL)								\
+		if (pgstat_relation_should_count(rel))						\
 			(rel)->pgstat_info->t_counts.t_tuples_fetched++;		\
 	} while (0)
 #define pgstat_count_index_scan(rel)								\
 	do {															\
-		if ((rel)->pgstat_info != NULL)								\
+		if (pgstat_relation_should_count(rel))						\
 			(rel)->pgstat_info->t_counts.t_numscans++;				\
 	} while (0)
 #define pgstat_count_index_tuples(rel, n)							\
 	do {															\
-		if ((rel)->pgstat_info != NULL)								\
+		if (pgstat_relation_should_count(rel))						\
 			(rel)->pgstat_info->t_counts.t_tuples_returned += (n);	\
 	} while (0)
 #define pgstat_count_buffer_read(rel)								\
 	do {															\
-		if ((rel)->pgstat_info != NULL)								\
+		if (pgstat_relation_should_count(rel))						\
 			(rel)->pgstat_info->t_counts.t_blocks_fetched++;		\
 	} while (0)
 #define pgstat_count_buffer_hit(rel)								\
 	do {															\
-		if ((rel)->pgstat_info != NULL)								\
+		if (pgstat_relation_should_count(rel))						\
 			(rel)->pgstat_info->t_counts.t_blocks_hit++;			\
 	} while (0)
 #define pgstat_count_buffer_read_time(n)							\
