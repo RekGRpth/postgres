@@ -7,7 +7,6 @@ use warnings;
 use PostgreSQL::Test::Cluster;
 use PostgreSQL::Test::Utils;
 use Test::More;
-use Config;
 
 # start a pgbench specific server
 my $node = PostgreSQL::Test::Cluster->new('main');
@@ -1223,9 +1222,9 @@ local $ENV{PGOPTIONS} = "-c default_transaction_isolation=repeatable\\ read";
 # delta variable in the next try
 my $err_pattern =
 	"(client (0|1) sending UPDATE xy SET y = y \\+ -?\\d+\\b).*"
-  . "client \\g2 got an error in command 3 \\(SQL\\) of script 0; "
+  . "client \\2 got an error in command 3 \\(SQL\\) of script 0; "
   . "ERROR:  could not serialize access due to concurrent update\\b.*"
-  . "\\g1";
+  . "\\1";
 
 $node->pgbench(
 	"-n -c 2 -t 1 -d --verbose-errors --max-tries 2",
