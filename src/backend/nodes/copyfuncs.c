@@ -2298,6 +2298,198 @@ _copyOnConflictExpr(const OnConflictExpr *from)
 	return newnode;
 }
 
+
+/*
+ * _copyJsonFormat
+ */
+static JsonFormat *
+_copyJsonFormat(const JsonFormat *from)
+{
+	JsonFormat *newnode = makeNode(JsonFormat);
+
+	COPY_SCALAR_FIELD(format_type);
+	COPY_SCALAR_FIELD(encoding);
+	COPY_LOCATION_FIELD(location);
+
+	return newnode;
+}
+
+/*
+ * _copyJsonReturning
+ */
+static JsonReturning *
+_copyJsonReturning(const JsonReturning *from)
+{
+	JsonReturning *newnode = makeNode(JsonReturning);
+
+	COPY_NODE_FIELD(format);
+	COPY_SCALAR_FIELD(typid);
+	COPY_SCALAR_FIELD(typmod);
+
+	return newnode;
+}
+
+/*
+ * _copyJsonValueExpr
+ */
+static JsonValueExpr *
+_copyJsonValueExpr(const JsonValueExpr *from)
+{
+	JsonValueExpr  *newnode = makeNode(JsonValueExpr);
+
+	COPY_NODE_FIELD(raw_expr);
+	COPY_NODE_FIELD(formatted_expr);
+	COPY_NODE_FIELD(format);
+
+	return newnode;
+}
+
+/*
+ * _copyJsonConstructorExpr
+ */
+static JsonConstructorExpr *
+_copyJsonConstructorExpr(const JsonConstructorExpr *from)
+{
+	JsonConstructorExpr *newnode = makeNode(JsonConstructorExpr);
+
+	COPY_SCALAR_FIELD(type);
+	COPY_NODE_FIELD(args);
+	COPY_NODE_FIELD(func);
+	COPY_NODE_FIELD(coercion);
+	COPY_NODE_FIELD(returning);
+	COPY_SCALAR_FIELD(absent_on_null);
+	COPY_SCALAR_FIELD(unique);
+	COPY_LOCATION_FIELD(location);
+
+	return newnode;
+}
+
+/*
+ * _copyJsonKeyValue
+ */
+static JsonKeyValue *
+_copyJsonKeyValue(const JsonKeyValue *from)
+{
+	JsonKeyValue *newnode = makeNode(JsonKeyValue);
+
+	COPY_NODE_FIELD(key);
+	COPY_NODE_FIELD(value);
+
+	return newnode;
+}
+
+/*
+ * _copyJsonObjectConstructor
+ */
+static JsonObjectConstructor *
+_copyJsonObjectConstructor(const JsonObjectConstructor *from)
+{
+	JsonObjectConstructor *newnode = makeNode(JsonObjectConstructor);
+
+	COPY_NODE_FIELD(exprs);
+	COPY_NODE_FIELD(output);
+	COPY_SCALAR_FIELD(absent_on_null);
+	COPY_SCALAR_FIELD(unique);
+	COPY_LOCATION_FIELD(location);
+
+	return newnode;
+}
+
+/*
+ * _copyJsonAggConstructor
+ */
+static JsonAggConstructor *
+_copyJsonAggConstructor(const JsonAggConstructor *from)
+{
+	JsonAggConstructor *newnode = makeNode(JsonAggConstructor);
+
+	COPY_NODE_FIELD(output);
+	COPY_NODE_FIELD(agg_filter);
+	COPY_NODE_FIELD(agg_order);
+	COPY_NODE_FIELD(over);
+	COPY_LOCATION_FIELD(location);
+
+	return newnode;
+}
+
+/*
+ * _copyJsonObjectAgg
+ */
+static JsonObjectAgg *
+_copyJsonObjectAgg(const JsonObjectAgg *from)
+{
+	JsonObjectAgg *newnode = makeNode(JsonObjectAgg);
+
+	COPY_NODE_FIELD(constructor);
+	COPY_NODE_FIELD(arg);
+	COPY_SCALAR_FIELD(absent_on_null);
+	COPY_SCALAR_FIELD(unique);
+
+	return newnode;
+}
+
+/*
+ * _copyJsonOutput
+ */
+static JsonOutput *
+_copyJsonOutput(const JsonOutput *from)
+{
+	JsonOutput	   *newnode = makeNode(JsonOutput);
+
+	COPY_NODE_FIELD(typeName);
+	COPY_NODE_FIELD(returning);
+
+	return newnode;
+}
+
+/*
+ * _copyJsonArrayConstructor
+ */
+static JsonArrayConstructor *
+_copyJsonArrayConstructor(const JsonArrayConstructor *from)
+{
+	JsonArrayConstructor *newnode = makeNode(JsonArrayConstructor);
+
+	COPY_NODE_FIELD(exprs);
+	COPY_NODE_FIELD(output);
+	COPY_SCALAR_FIELD(absent_on_null);
+	COPY_LOCATION_FIELD(location);
+
+	return newnode;
+}
+
+/*
+ * _copyJsonArrayAgg
+ */
+static JsonArrayAgg *
+_copyJsonArrayAgg(const JsonArrayAgg *from)
+{
+	JsonArrayAgg *newnode = makeNode(JsonArrayAgg);
+
+	COPY_NODE_FIELD(constructor);
+	COPY_NODE_FIELD(arg);
+	COPY_SCALAR_FIELD(absent_on_null);
+
+	return newnode;
+}
+
+/*
+ * _copyJsonArrayQueryConstructor
+ */
+static JsonArrayQueryConstructor *
+_copyJsonArrayQueryConstructor(const JsonArrayQueryConstructor *from)
+{
+	JsonArrayQueryConstructor *newnode = makeNode(JsonArrayQueryConstructor);
+
+	COPY_NODE_FIELD(query);
+	COPY_NODE_FIELD(output);
+	COPY_NODE_FIELD(format);
+	COPY_SCALAR_FIELD(absent_on_null);
+	COPY_LOCATION_FIELD(location);
+
+	return newnode;
+}
+
 /* ****************************************************************
  *						pathnodes.h copy functions
  *
@@ -5350,6 +5542,42 @@ copyObjectImpl(const void *from)
 			break;
 		case T_OnConflictExpr:
 			retval = _copyOnConflictExpr(from);
+			break;
+		case T_JsonFormat:
+			retval = _copyJsonFormat(from);
+			break;
+		case T_JsonReturning:
+			retval = _copyJsonReturning(from);
+			break;
+		case T_JsonValueExpr:
+			retval = _copyJsonValueExpr(from);
+			break;
+		case T_JsonKeyValue:
+			retval = _copyJsonKeyValue(from);
+			break;
+		case T_JsonConstructorExpr:
+			retval = _copyJsonConstructorExpr(from);
+			break;
+		case T_JsonObjectConstructor:
+			retval = _copyJsonObjectConstructor(from);
+			break;
+		case T_JsonAggConstructor:
+			retval = _copyJsonAggConstructor(from);
+			break;
+		case T_JsonObjectAgg:
+			retval = _copyJsonObjectAgg(from);
+			break;
+		case T_JsonOutput:
+			retval = _copyJsonOutput(from);
+			break;
+		case T_JsonArrayConstructor:
+			retval = _copyJsonArrayConstructor(from);
+			break;
+		case T_JsonArrayQueryConstructor:
+			retval = _copyJsonArrayQueryConstructor(from);
+			break;
+		case T_JsonArrayAgg:
+			retval = _copyJsonArrayAgg(from);
 			break;
 
 			/*
