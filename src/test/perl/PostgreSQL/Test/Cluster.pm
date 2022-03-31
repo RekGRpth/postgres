@@ -1388,7 +1388,7 @@ sub _set_pg_version
 #
 # Routines that call Postgres binaries need to call this routine like this:
 #
-#    local %ENV = $self->_get_env{[%extra_settings]);
+#    local %ENV = $self->_get_env([%extra_settings]);
 #
 # A copy of the environment is taken and node's host and port settings are
 # added as PGHOST and PGPORT, then the extra settings (if any) are applied.
@@ -2918,7 +2918,10 @@ sub corrupt_page_checksum
 
 package PostgreSQL::Test::Cluster::V_11; ## no critic (ProhibitMultiplePackages)
 
-use parent -norequire, qw(PostgreSQL::Test::Cluster);
+# parent.pm is not present in all perl versions before 5.10.1, so instead
+# do directly what it would do for this:
+# use parent -norequire, qw(PostgreSQL::Test::Cluster);
+push @PostgreSQL::Test::Cluster::V_11::ISA, 'PostgreSQL::Test::Cluster';
 
 # https://www.postgresql.org/docs/11/release-11.html
 
@@ -2945,7 +2948,8 @@ sub init
 
 package PostgreSQL::Test::Cluster::V_10; ## no critic (ProhibitMultiplePackages)
 
-use parent -norequire, qw(PostgreSQL::Test::Cluster::V_11);
+# use parent -norequire, qw(PostgreSQL::Test::Cluster::V_11);
+push @PostgreSQL::Test::Cluster::V_10::ISA, 'PostgreSQL::Test::Cluster::V_11';
 
 # https://www.postgresql.org/docs/10/release-10.html
 
