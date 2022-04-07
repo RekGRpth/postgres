@@ -94,6 +94,7 @@ extern PGDLLIMPORT volatile sig_atomic_t IdleInTransactionSessionTimeoutPending;
 extern PGDLLIMPORT volatile sig_atomic_t IdleSessionTimeoutPending;
 extern PGDLLIMPORT volatile sig_atomic_t ProcSignalBarrierPending;
 extern PGDLLIMPORT volatile sig_atomic_t LogMemoryContextPending;
+extern PGDLLIMPORT volatile sig_atomic_t IdleStatsUpdateTimeoutPending;
 
 extern PGDLLIMPORT volatile sig_atomic_t CheckClientConnectionPending;
 extern PGDLLIMPORT volatile sig_atomic_t ClientConnectionLost;
@@ -333,7 +334,6 @@ typedef enum BackendType
 	B_WAL_SENDER,
 	B_WAL_WRITER,
 	B_ARCHIVER,
-	B_STATS_COLLECTOR,
 	B_LOGGER,
 } BackendType;
 
@@ -465,6 +465,7 @@ extern void BaseInit(void);
 /* in utils/init/miscinit.c */
 extern bool IgnoreSystemIndexes;
 extern PGDLLIMPORT bool process_shared_preload_libraries_in_progress;
+extern bool process_shared_preload_libraries_done;
 extern char *session_preload_libraries_string;
 extern char *shared_preload_libraries_string;
 extern char *local_preload_libraries_string;

@@ -367,6 +367,7 @@ extern void ProcessConfigFile(GucContext context);
 extern char *convert_GUC_name_for_parameter_acl(const char *name);
 extern bool check_GUC_name_for_parameter_acl(const char *name);
 extern void InitializeGUCOptions(void);
+extern void InitializeWalConsistencyChecking(void);
 extern bool SelectConfigFiles(const char *userDoption, const char *progname);
 extern void ResetAllOptions(void);
 extern void AtStart_GUC(void);
@@ -451,5 +452,9 @@ extern void assign_search_path(const char *newval, void *extra);
 /* in access/transam/xlog.c */
 extern bool check_wal_buffers(int *newval, void **extra, GucSource source);
 extern void assign_xlog_sync_method(int new_sync_method, void *extra);
+
+/* in access/transam/xlogprefetcher.c */
+extern bool check_recovery_prefetch(int *new_value, void **extra, GucSource source);
+extern void assign_recovery_prefetch(int new_value, void *extra);
 
 #endif							/* GUC_H */
