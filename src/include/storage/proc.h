@@ -226,7 +226,7 @@ struct PGPROC
 	pg_atomic_uint64 waitStart; /* time at which wait for lock acquisition
 								 * started */
 
-	int			delayChkpt;		/* for DELAY_CHKPT_* flags */
+	int			delayChkptFlags;	/* for DELAY_CHKPT_* flags */
 
 	uint8		statusFlags;	/* this backend's status flags, see PROC_*
 								 * above. mirrored in
@@ -400,7 +400,7 @@ typedef struct PROC_HDR
 
 extern PGDLLIMPORT PROC_HDR *ProcGlobal;
 
-extern PGPROC *PreparedXactProcs;
+extern PGDLLIMPORT PGPROC *PreparedXactProcs;
 
 /* Accessor for PGPROC given a pgprocno. */
 #define GetPGProcByNumber(n) (&ProcGlobal->allProcs[(n)])
@@ -421,7 +421,7 @@ extern PGDLLIMPORT int StatementTimeout;
 extern PGDLLIMPORT int LockTimeout;
 extern PGDLLIMPORT int IdleInTransactionSessionTimeout;
 extern PGDLLIMPORT int IdleSessionTimeout;
-extern bool log_lock_waits;
+extern PGDLLIMPORT bool log_lock_waits;
 
 
 /*

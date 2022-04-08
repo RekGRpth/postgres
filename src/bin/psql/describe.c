@@ -4365,6 +4365,68 @@ listConversions(const char *pattern, bool verbose, bool showSystem)
 }
 
 /*
+ * \dconfig
+ *
+ * Describes configuration parameters.
+ */
+bool
+describeConfigurationParameters(const char *pattern, bool verbose,
+								bool showSystem)
+{
+	PQExpBufferData buf;
+	PGresult   *res;
+	printQueryOpt myopt = pset.popt;
+
+	initPQExpBuffer(&buf);
+	printfPQExpBuffer(&buf,
+					  "SELECT s.name AS \"%s\", "
+					  "pg_catalog.current_setting(s.name) AS \"%s\"",
+					  gettext_noop("Parameter"),
+					  gettext_noop("Value"));
+
+	if (verbose)
+	{
+		appendPQExpBuffer(&buf,
+						  ", s.vartype AS \"%s\", s.context AS \"%s\", ",
+						  gettext_noop("Type"),
+						  gettext_noop("Context"));
+		if (pset.sversion >= 150000)
+			printACLColumn(&buf, "p.paracl");
+		else
+			appendPQExpBuffer(&buf, "NULL AS \"%s\"",
+							  gettext_noop("Access privileges"));
+	}
+
+	appendPQExpBufferStr(&buf, "\nFROM pg_catalog.pg_settings s\n");
+
+	if (verbose && pset.sversion >= 150000)
+		appendPQExpBufferStr(&buf,
+							 "  LEFT JOIN pg_catalog.pg_parameter_acl p\n"
+							 "  ON pg_catalog.lower(s.name) = p.parname\n");
+
+	processSQLNamePattern(pset.db, &buf, pattern,
+						  false, false,
+						  NULL, "pg_catalog.lower(s.name)", NULL,
+						  NULL);
+
+	appendPQExpBufferStr(&buf, "ORDER BY 1;");
+
+	res = PSQLexec(buf.data);
+	termPQExpBuffer(&buf);
+	if (!res)
+		return false;
+
+	myopt.nullPrint = NULL;
+	myopt.title = _("List of configuration parameters");
+	myopt.translate_header = true;
+
+	printQuery(res, &myopt, pset.queryFout, false, pset.logfile);
+
+	PQclear(res);
+	return true;
+}
+
+/*
  * \dy
  *
  * Describes Event Triggers.
@@ -5904,8 +5966,8 @@ listPublications(const char *pattern)
  * Add footer to publication description.
  */
 static bool
-addFooterToPublicationDesc(PQExpBuffer buf, char *footermsg,
-						   bool as_schema, printTableContent *cont)
+addFooterToPublicationDesc(PQExpBuffer buf, const char *footermsg,
+						   bool as_schema, printTableContent *const cont)
 {
 	PGresult   *res;
 	int			count = 0;
@@ -5918,7 +5980,7 @@ addFooterToPublicationDesc(PQExpBuffer buf, char *footermsg,
 		count = PQntuples(res);
 
 	if (count > 0)
-		printTableAddFooter(cont, _(footermsg));
+		printTableAddFooter(cont, footermsg);
 
 	for (i = 0; i < count; i++)
 	{
@@ -6087,7 +6149,7 @@ describePublications(const char *pattern)
 							  "  AND c.oid = pr.prrelid\n"
 							  "  AND pr.prpubid = '%s'\n"
 							  "ORDER BY 1,2", pubid);
-			if (!addFooterToPublicationDesc(&buf, "Tables:", false, &cont))
+			if (!addFooterToPublicationDesc(&buf, _("Tables:"), false, &cont))
 				goto error_return;
 
 			if (pset.sversion >= 150000)
@@ -6099,7 +6161,7 @@ describePublications(const char *pattern)
 								  "     JOIN pg_catalog.pg_publication_namespace pn ON n.oid = pn.pnnspid\n"
 								  "WHERE pn.pnpubid = '%s'\n"
 								  "ORDER BY 1", pubid);
-				if (!addFooterToPublicationDesc(&buf, "Tables from schemas:",
+				if (!addFooterToPublicationDesc(&buf, _("Tables from schemas:"),
 												true, &cont))
 					goto error_return;
 			}

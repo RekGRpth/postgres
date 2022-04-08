@@ -21,7 +21,7 @@
  * potentially perform work during recovery should check RecoveryInProgress().
  * See XLogCtl notes in xlog.c.
  */
-extern bool InRecovery;
+extern PGDLLIMPORT bool InRecovery;
 
 /*
  * Like InRecovery, standbyState is only valid in the startup process.
@@ -52,7 +52,7 @@ typedef enum
 	STANDBY_SNAPSHOT_READY
 } HotStandbyState;
 
-extern HotStandbyState standbyState;
+extern PGDLLIMPORT HotStandbyState standbyState;
 
 #define InHotStandby (standbyState >= STANDBY_SNAPSHOT_PENDING)
 
@@ -93,6 +93,10 @@ extern void FreeFakeRelcacheEntry(Relation fakerel);
 extern int	read_local_xlog_page(XLogReaderState *state,
 								 XLogRecPtr targetPagePtr, int reqLen,
 								 XLogRecPtr targetRecPtr, char *cur_page);
+extern int	read_local_xlog_page_no_wait(XLogReaderState *state,
+										 XLogRecPtr targetPagePtr, int reqLen,
+										 XLogRecPtr targetRecPtr,
+										 char *cur_page);
 extern void wal_segment_open(XLogReaderState *state,
 							 XLogSegNo nextSegNo,
 							 TimeLineID *tli_p);
