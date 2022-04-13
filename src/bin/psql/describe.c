@@ -2622,7 +2622,6 @@ describeOneTableDetails(const char *schemaname,
 									  PQgetvalue(result, i, 4));
 
 				printTableAddFooter(&cont, buf.data);
-
 			}
 			PQclear(result);
 		}
@@ -3172,7 +3171,6 @@ describeOneTableDetails(const char *schemaname,
 							case 4:
 								printfPQExpBuffer(&buf, _("Triggers firing on replica only:"));
 								break;
-
 						}
 						printTableAddFooter(&cont, buf.data);
 						have_heading = true;
@@ -4410,7 +4408,8 @@ describeConfigurationParameters(const char *pattern, bool verbose,
 							  NULL, "pg_catalog.lower(s.name)", NULL,
 							  NULL);
 	else
-		appendPQExpBufferStr(&buf, "WHERE s.source <> 'default'\n");
+		appendPQExpBufferStr(&buf, "WHERE s.source <> 'default' AND\n"
+							 "      s.setting IS DISTINCT FROM s.boot_val\n");
 
 	appendPQExpBufferStr(&buf, "ORDER BY 1;");
 
