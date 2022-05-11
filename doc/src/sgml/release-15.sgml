@@ -161,17 +161,6 @@ Generate an error when char() is supplied with a negative argument (Peter Eisent
 </listitem>
 
 <!--
-Author: John Naylor <john.naylor@postgresql.org>
-2021-07-14 [c203dcddf] Remove unused function parameter in get_qual_from_partbo
--->
-
-<listitem>
-<para>
-Remove unused function parameter in get_qual_from_partbound() (Hou Zhijie)
-</para>
-</listitem>
-
-<!--
 Author: Peter Eisentraut <peter@eisentraut.org>
 2022-01-12 [a18b6d2dc] ecpg: Catch zero-length Unicode identifiers correctly
 -->
@@ -416,7 +405,7 @@ Improve the algorithm used to compute random() (Fabien Coelho)
 </para>
 
 <para>
-This will cause setseed() followed by random() to return a different value than on older servers.
+This will cause random() to differ from what was emitted by prior versions for the same seed values.
 </para>
 </listitem>
 
@@ -570,12 +559,11 @@ Author: Alvaro Herrera <alvherre@alvh.no-ip.org>
 
 <listitem>
 <para>
-Improve the trigger behavior of updates on partitioned tables that move rows between partitions (Amit Langote)
+Improve foreign key behavior of updates on partitioned tables that move rows between partitions (Amit Langote)
 </para>
 
 <para>
-Previously, such updates fired delete triggers on the source partition and fired insert triggers on the target partition.  PostgreSQL will now fire an update trigger on the partition root.  This makes
-foreign key behavior more consistent.  ALL TRIGGERS?
+Previously, such updates ran delete actions on the source partition and insert actions on the target partition.  PostgreSQL will now run update actions on the partition root.
 </para>
 </listitem>
 
@@ -610,7 +598,7 @@ Author: Alvaro Herrera <alvherre@alvh.no-ip.org>
 
 <listitem>
 <para>
-Fix ALTER TRIGGER RENAME on partitioned tables to rename partitions (Arne Roland, Álvaro Herrera)
+Fix ALTER TRIGGER RENAME on partitioned tables to properly rename triggers an all partitions (Arne Roland, Álvaro Herrera)
 </para>
 
 <para>
@@ -805,6 +793,21 @@ This will improve text-heavy operations like COPY FROM.
 </listitem>
 
 <!--
+Author: David Rowley <drowley@postgresql.org>
+2021-07-22 [91e9e89dc] Make nodeSort.c use Datum sorts for single column sorts
+Author: David Rowley <drowley@postgresql.org>
+2022-04-04 [40af10b57] Use Generation memory contexts to store tuples in sorts
+Author: John Naylor <john.naylor@postgresql.org>
+2022-04-02 [697492434] Specialize tuplesort routines for different kinds of abb
+-->
+
+<listitem>
+<para>
+Improve performance and reduce memory consumption of in-memory sorts (Ronan Dunklau, David Rowley, Thomas Munro)
+</para>
+</listitem>
+
+<!--
 Author: Michael Paquier <michael@paquier.xyz>
 2021-06-29 [4035cd5d4] Add support for LZ4 with compression of full-page writes
 Author: Michael Paquier <michael@paquier.xyz>
@@ -914,7 +917,7 @@ Author: Alvaro Herrera <alvherre@alvh.no-ip.org>
 
 <listitem>
 <para>
-Generate periodic log message during slow server starts (Nitin Jadhav, Robert Haas, Álvaro Herrera)
+Generate periodic log message during slow server starts (Nitin Jadhav, Robert Haas)
 </para>
 
 <para>
@@ -1067,7 +1070,7 @@ Author: Jeff Davis <jdavis@postgresql.org>
 
 <listitem>
 <para>
-Allow members of the pg_checkpointer predefined role to run the CHECKPOINT command (Jeff Davis)
+Add predefined role pg_checkpointer that allows members to run CHECKPOINT (Jeff Davis)
 </para>
 
 <para>
@@ -1220,6 +1223,10 @@ Author: Robert Haas <rhaas@postgresql.org>
 <para>
 Add server variable archive_library to specify the library to be called for archiving (Nathan Bossart)
 </para>
+
+<para>
+Previously only shell commands could be called to perform archiving.
+</para>
 </listitem>
 
 <!--
@@ -1296,17 +1303,6 @@ Author: Tomas Vondra <tomas.vondra@postgresql.org>
 <listitem>
 <para>
 Allow publications to be restricted to specific columns (Tomas Vondra, Álvaro Herrera, Rahila Syed)
-</para>
-</listitem>
-
-<!--
-Author: Peter Eisentraut <peter@eisentraut.org>
-2022-04-07 [344d62fb9] Unlogged sequences
--->
-
-<listitem>
-<para>
-Create unlogged sequences and allow them to be skipped in logical replication (Peter Eisentraut)
 </para>
 </listitem>
 
@@ -1419,7 +1415,7 @@ Author: Alvaro Herrera <alvherre@alvh.no-ip.org>
 
 <listitem>
 <para>
-Add SQL MERGE command to adjust one table to match another (Pavan Deolasee, Álvaro Herrera, Amit Langote, Simon Riggs)
+Add SQL MERGE command to adjust one table to match another (Simon Riggs, Pavan Deolasee, Álvaro Herrera, Amit Langote)
 </para>
 
 <para>
@@ -1550,6 +1546,17 @@ Author: Tom Lane <tgl@sss.pgh.pa.us>
 <listitem>
 <para>
 Improve overflow detection when casting values to interval (Joe Koshakow)
+</para>
+</listitem>
+
+<!--
+Author: Peter Eisentraut <peter@eisentraut.org>
+2022-04-07 [344d62fb9] Unlogged sequences
+-->
+
+<listitem>
+<para>
+Create unlogged sequences and allow them to be skipped in logical replication (Peter Eisentraut)
 </para>
 </listitem>
 
