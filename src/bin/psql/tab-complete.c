@@ -1873,7 +1873,8 @@ psql_completion(const char *text, int start, int end)
 		COMPLETE_WITH("(", "PUBLICATION");
 	/* ALTER SUBSCRIPTION <name> SET ( */
 	else if (HeadMatches("ALTER", "SUBSCRIPTION", MatchAny) && TailMatches("SET", "("))
-		COMPLETE_WITH("binary", "disable_on_error", "slot_name", "streaming", "synchronous_commit");
+		COMPLETE_WITH("binary", "disable_on_error", "origin", "slot_name",
+					  "streaming", "synchronous_commit");
 	/* ALTER SUBSCRIPTION <name> SKIP ( */
 	else if (HeadMatches("ALTER", "SUBSCRIPTION", MatchAny) && TailMatches("SKIP", "("))
 		COMPLETE_WITH("lsn");
@@ -3152,8 +3153,8 @@ psql_completion(const char *text, int start, int end)
 	/* Complete "CREATE SUBSCRIPTION <name> ...  WITH ( <opt>" */
 	else if (HeadMatches("CREATE", "SUBSCRIPTION") && TailMatches("WITH", "("))
 		COMPLETE_WITH("binary", "connect", "copy_data", "create_slot",
-					  "disable_on_error", "enabled", "slot_name", "streaming",
-					  "synchronous_commit", "two_phase");
+					  "disable_on_error", "enabled", "origin", "slot_name",
+					  "streaming", "synchronous_commit", "two_phase");
 
 /* CREATE TRIGGER --- is allowed inside CREATE SCHEMA, so use TailMatches */
 
@@ -4653,13 +4654,16 @@ psql_completion(const char *text, int start, int end)
 						 "tableattr", "title", "tuples_only",
 						 "unicode_border_linestyle",
 						 "unicode_column_linestyle",
-						 "unicode_header_linestyle");
+						 "unicode_header_linestyle",
+						 "xheader_width");
 	else if (TailMatchesCS("\\pset", MatchAny))
 	{
 		if (TailMatchesCS("format"))
 			COMPLETE_WITH_CS("aligned", "asciidoc", "csv", "html", "latex",
 							 "latex-longtable", "troff-ms", "unaligned",
 							 "wrapped");
+		else if (TailMatchesCS("xheader_width"))
+			COMPLETE_WITH_CS("full", "column", "page");
 		else if (TailMatchesCS("linestyle"))
 			COMPLETE_WITH_CS("ascii", "old-ascii", "unicode");
 		else if (TailMatchesCS("pager"))
@@ -5157,6 +5161,8 @@ _complete_from_query(const char *simple_query,
 
 		/* Clean up */
 		termPQExpBuffer(&query_buffer);
+		free(schemaname);
+		free(objectname);
 		free(e_object_like);
 		free(e_schemaname);
 		free(e_ref_object);
