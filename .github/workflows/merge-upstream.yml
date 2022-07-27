@@ -13,6 +13,11 @@ jobs:
     steps:
       - uses: rekgrpth/git-clone-shell-action@v1
       - uses: rekgrpth/git-fetch-upstream-merge-push-shell-action@v1
+  REL_15_STABLE:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: rekgrpth/git-clone-shell-action@v1
+      - uses: rekgrpth/git-fetch-upstream-merge-push-shell-action@v1
   REL_14_STABLE:
     runs-on: ubuntu-latest
     steps:
