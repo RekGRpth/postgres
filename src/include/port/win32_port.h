@@ -83,14 +83,6 @@
 #define HAVE_FSYNC_WRITETHROUGH
 #define FSYNC_WRITETHROUGH_IS_FSYNC
 
-/*
- * We have a replacement for fdatasync() in src/port/fdatasync.c, which is
- * unconditionally used by MSVC and Mingw builds.
- */
-#ifndef HAVE_FDATASYNC
-#define HAVE_FDATASYNC
-#endif
-
 #define USES_WINSOCK
 
 /*
@@ -503,6 +495,15 @@ extern int	pgwin32_ReserveSharedMemoryRegion(HANDLE);
 /* in backend/port/win32/crashdump.c */
 extern void pgwin32_install_crashdump_handler(void);
 
+/* in port/win32dlopen.c */
+extern void *dlopen(const char *file, int mode);
+extern void *dlsym(void *handle, const char *symbol);
+extern int	dlclose(void *handle);
+extern char *dlerror(void);
+
+#define RTLD_NOW 1
+#define RTLD_GLOBAL 0
+
 /* in port/win32error.c */
 extern void _dosmaperr(unsigned long);
 
@@ -552,5 +553,11 @@ typedef unsigned short mode_t;
  */
 #define HAVE_BUGGY_STRTOF 1
 #endif
+
+/* in port/win32pread.c */
+extern ssize_t pread(int fd, void *buf, size_t nbyte, off_t offset);
+
+/* in port/win32pwrite.c */
+extern ssize_t pwrite(int fd, const void *buf, size_t nbyte, off_t offset);
 
 #endif							/* PG_WIN32_PORT_H */
