@@ -284,7 +284,6 @@ extern int	pgunlink(const char *path);
 #if defined(WIN32) && !defined(__CYGWIN__)
 extern int	pgsymlink(const char *oldpath, const char *newpath);
 extern int	pgreadlink(const char *path, char *buf, size_t size);
-extern bool pgwin32_is_junction(const char *path);
 
 #define symlink(oldpath, newpath)	pgsymlink(oldpath, newpath)
 #define readlink(path, buf, size)	pgreadlink(path, buf, size)
@@ -328,11 +327,6 @@ extern FILE *pgwin32_popen(const char *command, const char *type);
 #define popen(a,b) pgwin32_popen(a,b)
 #define pclose(a) _pclose(a)
 
-/* New versions of MingW have gettimeofday, old mingw and msvc don't */
-#ifndef HAVE_GETTIMEOFDAY
-/* Last parameter not used */
-extern int	gettimeofday(struct timeval *tp, struct timezone *tzp);
-#endif
 #else							/* !WIN32 */
 
 /*
