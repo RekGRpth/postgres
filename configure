@@ -11750,13 +11750,12 @@ fi
 
 
 
-for ac_func in strerror_r gethostbyname_r
+for ac_func in strerror_r
 do :
-  as_ac_var=`$as_echo "ac_cv_func_$ac_func" | $as_tr_sh`
-ac_fn_c_check_func "$LINENO" "$ac_func" "$as_ac_var"
-if eval test \"x\$"$as_ac_var"\" = x"yes"; then :
+  ac_fn_c_check_func "$LINENO" "strerror_r" "ac_cv_func_strerror_r"
+if test "x$ac_cv_func_strerror_r" = xyes; then :
   cat >>confdefs.h <<_ACEOF
-#define `$as_echo "HAVE_$ac_func" | $as_tr_cpp` 1
+#define HAVE_STRERROR_R 1
 _ACEOF
 
 fi
@@ -12431,62 +12430,6 @@ fi
 
 
 if test "$enable_thread_safety" = yes; then
-  { $as_echo "$as_me:${as_lineno-$LINENO}: checking for library containing gethostbyname_r" >&5
-$as_echo_n "checking for library containing gethostbyname_r... " >&6; }
-if ${ac_cv_search_gethostbyname_r+:} false; then :
-  $as_echo_n "(cached) " >&6
-else
-  ac_func_search_save_LIBS=$LIBS
-cat confdefs.h - <<_ACEOF >conftest.$ac_ext
-/* end confdefs.h.  */
-
-/* Override any GCC internal prototype to avoid an error.
-   Use char because int might match the return type of a GCC
-   builtin and then its argument prototype would still apply.  */
-#ifdef __cplusplus
-extern "C"
-#endif
-char gethostbyname_r ();
-int
-main ()
-{
-return gethostbyname_r ();
-  ;
-  return 0;
-}
-_ACEOF
-for ac_lib in '' nsl; do
-  if test -z "$ac_lib"; then
-    ac_res="none required"
-  else
-    ac_res=-l$ac_lib
-    LIBS="-l$ac_lib  $ac_func_search_save_LIBS"
-  fi
-  if ac_fn_c_try_link "$LINENO"; then :
-  ac_cv_search_gethostbyname_r=$ac_res
-fi
-rm -f core conftest.err conftest.$ac_objext \
-    conftest$ac_exeext
-  if ${ac_cv_search_gethostbyname_r+:} false; then :
-  break
-fi
-done
-if ${ac_cv_search_gethostbyname_r+:} false; then :
-
-else
-  ac_cv_search_gethostbyname_r=no
-fi
-rm conftest.$ac_ext
-LIBS=$ac_func_search_save_LIBS
-fi
-{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_cv_search_gethostbyname_r" >&5
-$as_echo "$ac_cv_search_gethostbyname_r" >&6; }
-ac_res=$ac_cv_search_gethostbyname_r
-if test "$ac_res" != no; then :
-  test "$ac_res" = "none required" || LIBS="$ac_res $LIBS"
-
-fi
-
   { $as_echo "$as_me:${as_lineno-$LINENO}: checking for library containing pthread_barrier_wait" >&5
 $as_echo_n "checking for library containing pthread_barrier_wait... " >&6; }
 if ${ac_cv_search_pthread_barrier_wait+:} false; then :
@@ -15060,19 +15003,6 @@ _ACEOF
 
 fi
 
-ac_fn_c_check_type "$LINENO" "struct sockaddr_storage" "ac_cv_type_struct_sockaddr_storage" "#include <sys/types.h>
-#include <sys/socket.h>
-
-"
-if test "x$ac_cv_type_struct_sockaddr_storage" = xyes; then :
-
-cat >>confdefs.h <<_ACEOF
-#define HAVE_STRUCT_SOCKADDR_STORAGE 1
-_ACEOF
-
-
-fi
-
 ac_fn_c_check_member "$LINENO" "struct sockaddr_storage" "ss_family" "ac_cv_member_struct_sockaddr_storage_ss_family" "#include <sys/types.h>
 #include <sys/socket.h>
 
@@ -15129,20 +15059,6 @@ if test "x$ac_cv_member_struct_sockaddr_sa_len" = xyes; then :
 
 cat >>confdefs.h <<_ACEOF
 #define HAVE_STRUCT_SOCKADDR_SA_LEN 1
-_ACEOF
-
-
-fi
-
-ac_fn_c_check_type "$LINENO" "struct addrinfo" "ac_cv_type_struct_addrinfo" "#include <sys/types.h>
-#include <sys/socket.h>
-#include <netdb.h>
-
-"
-if test "x$ac_cv_type_struct_addrinfo" = xyes; then :
-
-cat >>confdefs.h <<_ACEOF
-#define HAVE_STRUCT_ADDRINFO 1
 _ACEOF
 
 
@@ -16544,34 +16460,6 @@ esac
 
 	{ $as_echo "$as_me:${as_lineno-$LINENO}: On $host_os we will use our strtof wrapper." >&5
 $as_echo "$as_me: On $host_os we will use our strtof wrapper." >&6;}
-fi
-
-# System's version of getaddrinfo(), if any, may be used only if we found
-# a definition for struct addrinfo; see notes in src/include/getaddrinfo.h.
-# We use only our own getaddrinfo.c on Windows, but it's time to revisit that.
-if test x"$ac_cv_type_struct_addrinfo" = xyes && \
-   test "$PORTNAME" != "win32"; then
-  ac_fn_c_check_func "$LINENO" "getaddrinfo" "ac_cv_func_getaddrinfo"
-if test "x$ac_cv_func_getaddrinfo" = xyes; then :
-  $as_echo "#define HAVE_GETADDRINFO 1" >>confdefs.h
-
-else
-  case " $LIBOBJS " in
-  *" getaddrinfo.$ac_objext "* ) ;;
-  *) LIBOBJS="$LIBOBJS getaddrinfo.$ac_objext"
- ;;
-esac
-
-fi
-
-
-else
-  case " $LIBOBJS " in
-  *" getaddrinfo.$ac_objext "* ) ;;
-  *) LIBOBJS="$LIBOBJS getaddrinfo.$ac_objext"
- ;;
-esac
-
 fi
 
 # Similarly, use system's getopt_long() only if system provides struct option.
