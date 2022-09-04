@@ -442,7 +442,6 @@ extern void GUC_check_errcode(int sqlerrcode);
 	pre_format_elog_string(errno, TEXTDOMAIN), \
 	GUC_check_errhint_string = format_elog_string
 
-
 /*
  * The following functions are not in guc.c, but are declared here to avoid
  * having to include guc.h in some widely used headers that it really doesn't
