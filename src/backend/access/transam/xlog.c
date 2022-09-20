@@ -648,7 +648,7 @@ static void XLogReportParameters(void);
 static int	LocalSetXLogInsertAllowed(void);
 static void CreateEndOfRecoveryRecord(void);
 static XLogRecPtr CreateOverwriteContrecordRecord(XLogRecPtr aborted_lsn,
-												  XLogRecPtr missingContrecPtr,
+												  XLogRecPtr pagePtr,
 												  TimeLineID newTLI);
 static void CheckPointGuts(XLogRecPtr checkPointRedo, int flags);
 static void KeepLogSeg(XLogRecPtr recptr, XLogSegNo *logSegNo);
@@ -1785,7 +1785,7 @@ AdvanceXLInsertBuffer(XLogRecPtr upto, TimeLineID tli, bool opportunistic)
 	XLogRecPtr	NewPageEndPtr = InvalidXLogRecPtr;
 	XLogRecPtr	NewPageBeginPtr;
 	XLogPageHeader NewPage;
-	int			npages = 0;
+	int			npages pg_attribute_unused() = 0;
 
 	LWLockAcquire(WALBufMappingLock, LW_EXCLUSIVE);
 
