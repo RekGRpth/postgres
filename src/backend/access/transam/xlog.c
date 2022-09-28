@@ -4712,7 +4712,6 @@ BootStrapXLOG(void)
 	checkPoint.nextXid =
 		FullTransactionIdFromEpochAndXid(0, FirstNormalTransactionId);
 	checkPoint.nextOid = FirstGenbkiObjectId;
-	checkPoint.nextRelFileNumber = FirstNormalRelFileNumber;
 	checkPoint.nextMulti = FirstMultiXactId;
 	checkPoint.nextMultiOffset = 0;
 	checkPoint.oldestXid = FirstNormalTransactionId;
@@ -4726,11 +4725,7 @@ BootStrapXLOG(void)
 
 	ShmemVariableCache->nextXid = checkPoint.nextXid;
 	ShmemVariableCache->nextOid = checkPoint.nextOid;
-	ShmemVariableCache->nextRelFileNumber = checkPoint.nextRelFileNumber;
 	ShmemVariableCache->oidCount = 0;
-	ShmemVariableCache->loggedRelFileNumber = checkPoint.nextRelFileNumber;
-	ShmemVariableCache->flushedRelFileNumber = checkPoint.nextRelFileNumber;
-	ShmemVariableCache->loggedRelFileNumberRecPtr = InvalidXLogRecPtr;
 	MultiXactSetNextMXact(checkPoint.nextMulti, checkPoint.nextMultiOffset);
 	AdvanceOldestClogXid(checkPoint.oldestXid);
 	SetTransactionIdLimit(checkPoint.oldestXid, checkPoint.oldestXidDB);
@@ -5196,10 +5191,7 @@ StartupXLOG(void)
 	/* initialize shared memory variables from the checkpoint record */
 	ShmemVariableCache->nextXid = checkPoint.nextXid;
 	ShmemVariableCache->nextOid = checkPoint.nextOid;
-	ShmemVariableCache->nextRelFileNumber = checkPoint.nextRelFileNumber;
 	ShmemVariableCache->oidCount = 0;
-	ShmemVariableCache->loggedRelFileNumber = checkPoint.nextRelFileNumber;
-	ShmemVariableCache->flushedRelFileNumber = checkPoint.nextRelFileNumber;
 	MultiXactSetNextMXact(checkPoint.nextMulti, checkPoint.nextMultiOffset);
 	AdvanceOldestClogXid(checkPoint.oldestXid);
 	SetTransactionIdLimit(checkPoint.oldestXid, checkPoint.oldestXidDB);
@@ -6671,24 +6663,6 @@ CreateCheckPoint(int flags)
 		checkPoint.nextOid += ShmemVariableCache->oidCount;
 	LWLockRelease(OidGenLock);
 
-	/*
-	 * If this is a shutdown checkpoint then we can safely start allocating
-	 * relfilenumber from the nextRelFileNumber value after the restart because
-	 * no one one else can use the relfilenumber beyond that number before the
-	 * shutdown.  OTOH, if it is a normal checkpoint then if there is a crash
-	 * after this point then we might end up reusing the same relfilenumbers
-	 * after the restart so we need to set the nextRelFileNumber to the already
-	 * logged relfilenumber as no one will use number beyond this limit without
-	 * logging again.
-	 */
-	LWLockAcquire(RelFileNumberGenLock, LW_SHARED);
-	if (shutdown)
-		checkPoint.nextRelFileNumber = ShmemVariableCache->nextRelFileNumber;
-	else
-		checkPoint.nextRelFileNumber = ShmemVariableCache->loggedRelFileNumber;
-
-	LWLockRelease(RelFileNumberGenLock);
-
 	MultiXactGetCheckptMulti(shutdown,
 							 &checkPoint.nextMulti,
 							 &checkPoint.nextMultiOffset,
@@ -7567,24 +7541,6 @@ XLogPutNextOid(Oid nextOid)
 }
 
 /*
- * Similar to the XLogPutNextOid but instead of writing NEXTOID log record it
- * writes a NEXT_RELFILENUMBER log record.  It also returns the XLogRecPtr of
- * the currently logged relfilenumber record, so that the caller can flush it
- * at the appropriate time.
- */
-XLogRecPtr
-LogNextRelFileNumber(RelFileNumber nextrelnumber)
-{
-	XLogRecPtr	recptr;
-
-	XLogBeginInsert();
-	XLogRegisterData((char *) (&nextrelnumber), sizeof(RelFileNumber));
-	recptr = XLogInsert(RM_XLOG_ID, XLOG_NEXT_RELFILENUMBER);
-
-	return recptr;
-}
-
-/*
  * Write an XLOG SWITCH record.
  *
  * Here we just blindly issue an XLogInsert request for the record.
@@ -7799,17 +7755,6 @@ xlog_redo(XLogReaderState *record)
 		ShmemVariableCache->oidCount = 0;
 		LWLockRelease(OidGenLock);
 	}
-	if (info == XLOG_NEXT_RELFILENUMBER)
-	{
-		RelFileNumber nextRelFileNumber;
-
-		memcpy(&nextRelFileNumber, XLogRecGetData(record), sizeof(RelFileNumber));
-		LWLockAcquire(RelFileNumberGenLock, LW_EXCLUSIVE);
-		ShmemVariableCache->nextRelFileNumber = nextRelFileNumber;
-		ShmemVariableCache->loggedRelFileNumber = nextRelFileNumber;
-		ShmemVariableCache->flushedRelFileNumber = nextRelFileNumber;
-		LWLockRelease(RelFileNumberGenLock);
-	}
 	else if (info == XLOG_CHECKPOINT_SHUTDOWN)
 	{
 		CheckPoint	checkPoint;
@@ -7824,11 +7769,6 @@ xlog_redo(XLogReaderState *record)
 		ShmemVariableCache->nextOid = checkPoint.nextOid;
 		ShmemVariableCache->oidCount = 0;
 		LWLockRelease(OidGenLock);
-		LWLockAcquire(RelFileNumberGenLock, LW_EXCLUSIVE);
-		ShmemVariableCache->nextRelFileNumber = checkPoint.nextRelFileNumber;
-		ShmemVariableCache->loggedRelFileNumber = checkPoint.nextRelFileNumber;
-		ShmemVariableCache->flushedRelFileNumber = checkPoint.nextRelFileNumber;
-		LWLockRelease(RelFileNumberGenLock);
 		MultiXactSetNextMXact(checkPoint.nextMulti,
 							  checkPoint.nextMultiOffset);
 
@@ -8316,9 +8256,9 @@ issue_xlog_fsync(int fd, XLogSegNo segno, TimeLineID tli)
  * symlinks while extracting files from tar. However for consistency and
  * platform-independence, we do it the same way everywhere.
  *
- * It fills in backup_state with the information required for the backup,
- * such as the minimum WAL location that must be present to restore from
- * this backup (starttli) and the corresponding timeline ID (starttli).
+ * It fills in "state" with the information required for the backup, such
+ * as the minimum WAL location that must be present to restore from this
+ * backup (starttli) and the corresponding timeline ID (starttli).
  *
  * Every successfully started backup must be stopped by calling
  * do_pg_backup_stop() or do_pg_abort_backup(). There can be many
@@ -8634,7 +8574,7 @@ get_backup_status(void)
  * file (if required), resets sessionBackupState and so on.  It can optionally
  * wait for WAL segments to be archived.
  *
- * backup_state is filled with the information necessary to restore from this
+ * "state" is filled with the information necessary to restore from this
  * backup with its stop LSN (stoppoint), its timeline ID (stoptli), etc.
  *
  * It is the responsibility of the caller of this function to verify the
