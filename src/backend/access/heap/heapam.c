@@ -8193,8 +8193,10 @@ log_heap_freeze(Relation reln, Buffer buffer, TransactionId cutoff_xid,
  * corresponding visibility map block.  Both should have already been modified
  * and dirtied.
  *
- * If checksums are enabled, we also generate a full-page image of
- * heap_buffer, if necessary.
+ * If checksums or wal_log_hints are enabled, we may also generate a full-page
+ * image of heap_buffer. Otherwise, we optimize away the FPI (by specifying
+ * REGBUF_NO_IMAGE for the heap buffer), in which case the caller should *not*
+ * update the heap page's LSN.
  */
 XLogRecPtr
 log_heap_visible(RelFileLocator rlocator, Buffer heap_buffer, Buffer vm_buffer,
@@ -8823,14 +8825,16 @@ heap_xlog_visible(XLogReaderState *record)
 		/*
 		 * We don't bump the LSN of the heap page when setting the visibility
 		 * map bit (unless checksums or wal_hint_bits is enabled, in which
-		 * case we must), because that would generate an unworkable volume of
-		 * full-page writes.  This exposes us to torn page hazards, but since
+		 * case we must). This exposes us to torn page hazards, but since
 		 * we're not inspecting the existing page contents in any way, we
 		 * don't care.
 		 */
 		page = BufferGetPage(buffer);
 
 		PageSetAllVisible(page);
+
+		if (XLogHintBitIsNeeded())
+			PageSetLSN(page, lsn);
 
 		MarkBufferDirty(buffer);
 	}
