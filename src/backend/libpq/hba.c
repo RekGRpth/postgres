@@ -66,6 +66,11 @@ typedef struct check_network_data
 	bool		result;			/* set to true if match */
 } check_network_data;
 
+typedef struct
+{
+	const char *filename;
+	int			linenum;
+} tokenize_error_callback_arg;
 
 #define token_has_regexp(t)	(t->regex != NULL)
 #define token_is_keyword(t, k)	(!t->quoted && strcmp(t->string, k) == 0)
@@ -117,13 +122,15 @@ static const char *const UserAuthName[] =
 
 
 static List *tokenize_inc_file(List *tokens, const char *outer_filename,
-							   const char *inc_filename, int elevel, char **err_msg);
+							   const char *inc_filename, int elevel,
+							   int depth, char **err_msg);
 static bool parse_hba_auth_opt(char *name, char *val, HbaLine *hbaline,
 							   int elevel, char **err_msg);
 static int	regcomp_auth_token(AuthToken *token, char *filename, int line_num,
 							   char **err_msg, int elevel);
 static int	regexec_auth_token(const char *match, AuthToken *token,
 							   size_t nmatch, regmatch_t pmatch[]);
+static void tokenize_error_callback(void *arg);
 
 
 /*
@@ -414,7 +421,7 @@ regexec_auth_token(const char *match, AuthToken *token, size_t nmatch,
  */
 static List *
 next_field_expand(const char *filename, char **lineptr,
-				  int elevel, char **err_msg)
+				  int elevel, int depth, char **err_msg)
 {
 	char		buf[MAX_TOKEN];
 	bool		trailing_comma;
@@ -431,7 +438,7 @@ next_field_expand(const char *filename, char **lineptr,
 		/* Is this referencing a file? */
 		if (!initial_quote && buf[0] == '@' && buf[1] != '\0')
 			tokens = tokenize_inc_file(tokens, filename, buf + 1,
-									   elevel, err_msg);
+									   elevel, depth + 1, err_msg);
 		else
 			tokens = lappend(tokens, make_auth_token(buf, initial_quote));
 	} while (trailing_comma && (*err_msg == NULL));
@@ -459,6 +466,7 @@ tokenize_inc_file(List *tokens,
 				  const char *outer_filename,
 				  const char *inc_filename,
 				  int elevel,
+				  int depth,
 				  char **err_msg)
 {
 	char	   *inc_fullname;
@@ -468,24 +476,18 @@ tokenize_inc_file(List *tokens,
 	MemoryContext linecxt;
 
 	inc_fullname = AbsoluteConfigLocation(inc_filename, outer_filename);
+	inc_file = open_auth_file(inc_fullname, elevel, depth, err_msg);
 
-	inc_file = AllocateFile(inc_fullname, "r");
 	if (inc_file == NULL)
 	{
-		int			save_errno = errno;
-
-		ereport(elevel,
-				(errcode_for_file_access(),
-				 errmsg("could not open secondary authentication file \"@%s\" as \"%s\": %m",
-						inc_filename, inc_fullname)));
-		*err_msg = psprintf("could not open secondary authentication file \"@%s\" as \"%s\": %s",
-							inc_filename, inc_fullname, strerror(save_errno));
+		/* error already logged */
 		pfree(inc_fullname);
 		return tokens;
 	}
 
 	/* There is possible recursion here if the file contains @ */
-	linecxt = tokenize_auth_file(inc_fullname, inc_file, &inc_lines, elevel);
+	linecxt = tokenize_auth_file(inc_fullname, inc_file, &inc_lines, elevel,
+								 depth);
 
 	FreeFile(inc_file);
 	pfree(inc_fullname);
@@ -522,6 +524,71 @@ tokenize_inc_file(List *tokens,
 }
 
 /*
+ * open_auth_file
+ *		Open the given file.
+ *
+ * filename: the absolute path to the target file
+ * elevel: message logging level
+ * depth: recursion level when opening the file
+ * err_msg: details about the error
+ *
+ * Return value is the opened file.  On error, returns NULL with details
+ * about the error stored in "err_msg".
+ */
+FILE *
+open_auth_file(const char *filename, int elevel, int depth,
+			   char **err_msg)
+{
+	FILE	   *file;
+
+	/*
+	 * Reject too-deep include nesting depth.  This is just a safety check to
+	 * avoid dumping core due to stack overflow if an include file loops back
+	 * to itself.  The maximum nesting depth is pretty arbitrary.
+	 */
+	if (depth > 10)
+	{
+		ereport(elevel,
+				(errcode_for_file_access(),
+				 errmsg("could not open file \"%s\": maximum nesting depth exceeded",
+						filename)));
+		if (err_msg)
+			*err_msg = psprintf("could not open file \"%s\": maximum nesting depth exceeded",
+								filename);
+		return NULL;
+	}
+
+	file = AllocateFile(filename, "r");
+	if (file == NULL)
+	{
+		int			save_errno = errno;
+
+		ereport(elevel,
+				(errcode_for_file_access(),
+				 errmsg("could not open file \"%s\": %m",
+						filename)));
+		if (err_msg)
+			*err_msg = psprintf("could not open file \"%s\": %s",
+								filename, strerror(save_errno));
+		return NULL;
+	}
+
+	return file;
+}
+
+/*
+ * error context callback for tokenize_auth_file()
+ */
+static void
+tokenize_error_callback(void *arg)
+{
+	tokenize_error_callback_arg *callback_arg = (tokenize_error_callback_arg *) arg;
+
+	errcontext("line %d of configuration file \"%s\"",
+			   callback_arg->linenum, callback_arg->filename);
+}
+
+/*
  * tokenize_auth_file
  *		Tokenize the given file.
  *
@@ -532,6 +599,7 @@ tokenize_inc_file(List *tokens,
  * file: the already-opened target file
  * tok_lines: receives output list
  * elevel: message logging level
+ * depth: level of recursion when tokenizing the target file
  *
  * Errors are reported by logging messages at ereport level elevel and by
  * adding TokenizedAuthLine structs containing non-null err_msg fields to the
@@ -542,12 +610,22 @@ tokenize_inc_file(List *tokens,
  */
 MemoryContext
 tokenize_auth_file(const char *filename, FILE *file, List **tok_lines,
-				   int elevel)
+				   int elevel, int depth)
 {
 	int			line_number = 1;
 	StringInfoData buf;
 	MemoryContext linecxt;
 	MemoryContext oldcxt;
+	ErrorContextCallback tokenerrcontext;
+	tokenize_error_callback_arg callback_arg;
+
+	callback_arg.filename = filename;
+	callback_arg.linenum = line_number;
+
+	tokenerrcontext.callback = tokenize_error_callback;
+	tokenerrcontext.arg = (void *) &callback_arg;
+	tokenerrcontext.previous = error_context_stack;
+	error_context_stack = &tokenerrcontext;
 
 	linecxt = AllocSetContextCreate(CurrentMemoryContext,
 									"tokenize_auth_file",
@@ -613,7 +691,7 @@ tokenize_auth_file(const char *filename, FILE *file, List **tok_lines,
 			List	   *current_field;
 
 			current_field = next_field_expand(filename, &lineptr,
-											  elevel, &err_msg);
+											  elevel, depth, &err_msg);
 			/* add field to line, unless we are at EOL or comment start */
 			if (current_field != NIL)
 				current_line = lappend(current_line, current_field);
@@ -636,9 +714,12 @@ tokenize_auth_file(const char *filename, FILE *file, List **tok_lines,
 		}
 
 		line_number += continuations + 1;
+		callback_arg.linenum = line_number;
 	}
 
 	MemoryContextSwitchTo(oldcxt);
+
+	error_context_stack = tokenerrcontext.previous;
 
 	return linecxt;
 }
@@ -2332,17 +2413,14 @@ load_hba(void)
 	MemoryContext oldcxt;
 	MemoryContext hbacxt;
 
-	file = AllocateFile(HbaFileName, "r");
+	file = open_auth_file(HbaFileName, LOG, 0, NULL);
 	if (file == NULL)
 	{
-		ereport(LOG,
-				(errcode_for_file_access(),
-				 errmsg("could not open configuration file \"%s\": %m",
-						HbaFileName)));
+		/* error already logged */
 		return false;
 	}
 
-	linecxt = tokenize_auth_file(HbaFileName, file, &hba_lines, LOG);
+	linecxt = tokenize_auth_file(HbaFileName, file, &hba_lines, LOG, 0);
 	FreeFile(file);
 
 	/* Now parse all the lines */
@@ -2703,18 +2781,15 @@ load_ident(void)
 	MemoryContext ident_context;
 	IdentLine  *newline;
 
-	file = AllocateFile(IdentFileName, "r");
+	/* not FATAL ... we just won't do any special ident maps */
+	file = open_auth_file(IdentFileName, LOG, 0, NULL);
 	if (file == NULL)
 	{
-		/* not fatal ... we just won't do any special ident maps */
-		ereport(LOG,
-				(errcode_for_file_access(),
-				 errmsg("could not open usermap file \"%s\": %m",
-						IdentFileName)));
+		/* error already logged */
 		return false;
 	}
 
-	linecxt = tokenize_auth_file(IdentFileName, file, &ident_lines, LOG);
+	linecxt = tokenize_auth_file(IdentFileName, file, &ident_lines, LOG, 0);
 	FreeFile(file);
 
 	/* Now parse all the lines */
