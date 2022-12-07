@@ -211,6 +211,10 @@ if host_system == 'aix'
 
 elif host_system == 'cygwin'
   cppflags += '-D_GNU_SOURCE'
+  dlsuffix = '.dll'
+  mod_link_args_fmt = ['@0@']
+  mod_link_with_name = 'lib@0@.exe.a'
+  mod_link_with_dir = 'libdir'
 
 elif host_system == 'darwin'
   dlsuffix = '.dylib'
@@ -332,9 +336,6 @@ openssl = find_program(get_option('OPENSSL'), native: true, required: false)
 program_zstd = find_program(get_option('ZSTD'), native: true, required: false)
 dtrace = find_program(get_option('DTRACE'), native: true, required: get_option('dtrace'))
 missing = find_program('config/missing', native: true)
-
-# used by PGXS
-install_sh = find_program('config/install-sh', native: true)
 
 bison_flags = []
 if bison.found()
@@ -1737,11 +1738,10 @@ endif
 
 # A few places with imported code get a pass on -Wdeclaration-after-statement, remember
 # the result for them
+cflags_no_decl_after_statement = []
 if cc.has_argument('-Wdeclaration-after-statement')
   cflags_warn += '-Wdeclaration-after-statement'
-  using_declaration_after_statement_warning = true
-else
-  using_declaration_after_statement_warning = false
+  cflags_no_decl_after_statement += '-Wno-declaration-after-statement'
 endif
 
 
@@ -2310,8 +2310,8 @@ gnugetopt_dep = cc.find_library('gnugetopt', required: false)
 #   (i.e., allow '-' as a flag character), so use our version on those platforms
 # - We want to use system's getopt_long() only if the system provides struct
 #   option
-always_replace_getopt = host_system in ['windows', 'openbsd', 'solaris']
-always_replace_getopt_long = host_system == 'windows' or not cdata.has('HAVE_STRUCT_OPTION')
+always_replace_getopt = host_system in ['windows', 'cygwin', 'openbsd', 'solaris']
+always_replace_getopt_long = host_system in ['windows', 'cygwin'] or not cdata.has('HAVE_STRUCT_OPTION')
 
 # Required on BSDs
 execinfo_dep = cc.find_library('execinfo', required: false)
