@@ -1595,7 +1595,8 @@ retry:
 		/* Redirect items mustn't be touched */
 		if (ItemIdIsRedirected(itemid))
 		{
-			prunestate->hastup = true;	/* page won't be truncatable */
+			/* page makes rel truncation unsafe */
+			prunestate->hastup = true;
 			continue;
 		}
 
@@ -1698,7 +1699,8 @@ retry:
 					}
 
 					/* Track newest xmin on page. */
-					if (TransactionIdFollows(xmin, prunestate->visibility_cutoff_xid))
+					if (TransactionIdFollows(xmin, prunestate->visibility_cutoff_xid) &&
+						TransactionIdIsNormal(xmin))
 						prunestate->visibility_cutoff_xid = xmin;
 				}
 				break;
@@ -1863,7 +1865,7 @@ retry:
 		 * because visibility_cutoff_xid will be logged by our caller in a
 		 * moment.
 		 */
-		Assert(cutoff == FrozenTransactionId ||
+		Assert(!TransactionIdIsValid(cutoff) ||
 			   cutoff == prunestate->visibility_cutoff_xid);
 	}
 #endif
@@ -3293,7 +3295,8 @@ heap_page_is_all_visible(LVRelState *vacrel, Buffer buf,
 					}
 
 					/* Track newest xmin on page. */
-					if (TransactionIdFollows(xmin, *visibility_cutoff_xid))
+					if (TransactionIdFollows(xmin, *visibility_cutoff_xid) &&
+						TransactionIdIsNormal(xmin))
 						*visibility_cutoff_xid = xmin;
 
 					/* Check whether this tuple is already frozen or not */
