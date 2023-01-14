@@ -19,6 +19,7 @@
 #include "catalog/namespace.h"
 #include "catalog/pg_inherits.h"
 #include "commands/lockcmds.h"
+#include "commands/tablecmds.h"
 #include "miscadmin.h"
 #include "nodes/nodeFuncs.h"
 #include "parser/parse_clause.h"
@@ -292,18 +293,25 @@ LockTableAclCheck(Oid reloid, LOCKMODE lockmode, Oid userid)
 	AclResult	aclresult;
 	AclMode		aclmask;
 
-	/* Verify adequate privilege */
-	if (lockmode == AccessShareLock)
-		aclmask = ACL_SELECT;
-	else if (lockmode == RowExclusiveLock)
-		aclmask = ACL_INSERT | ACL_UPDATE | ACL_DELETE | ACL_TRUNCATE;
-	else
-		aclmask = ACL_UPDATE | ACL_DELETE | ACL_TRUNCATE;
+	/* any of these privileges permit any lock mode */
+	aclmask = ACL_MAINTAIN | ACL_UPDATE | ACL_DELETE | ACL_TRUNCATE;
 
-	/* MAINTAIN privilege allows all lock modes */
-	aclmask |= ACL_MAINTAIN;
+	/* SELECT privileges also permit ACCESS SHARE and below */
+	if (lockmode <= AccessShareLock)
+		aclmask |= ACL_SELECT;
+
+	/* INSERT privileges also permit ROW EXCLUSIVE and below */
+	if (lockmode <= RowExclusiveLock)
+		aclmask |= ACL_INSERT;
 
 	aclresult = pg_class_aclcheck(reloid, userid, aclmask);
+
+	/*
+	 * If this is a partition, check permissions of its ancestors if needed.
+	 */
+	if (aclresult != ACLCHECK_OK &&
+		has_partition_ancestor_privs(reloid, userid, ACL_MAINTAIN))
+		aclresult = ACLCHECK_OK;
 
 	return aclresult;
 }
