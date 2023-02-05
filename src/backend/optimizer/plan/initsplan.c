@@ -494,9 +494,6 @@ extract_lateral_references(PlannerInfo *root, RelOptInfo *brel, Index rtindex)
  * create_lateral_join_info
  *	  Fill in the per-base-relation direct_lateral_relids, lateral_relids
  *	  and lateral_referencers sets.
- *
- * This has to run after deconstruct_jointree, because we need to know the
- * final ph_eval_at values for PlaceHolderVars.
  */
 void
 create_lateral_join_info(PlannerInfo *root)
@@ -508,6 +505,9 @@ create_lateral_join_info(PlannerInfo *root)
 	/* We need do nothing if the query contains no LATERAL RTEs */
 	if (!root->hasLateralRTEs)
 		return;
+
+	/* We'll need to have the ph_eval_at values for PlaceHolderVars */
+	Assert(root->placeholdersFrozen);
 
 	/*
 	 * Examine all baserels (the rel array has been set up by now).
@@ -1189,23 +1189,8 @@ deconstruct_distribute(PlannerInfo *root, JoinTreeItem *jtitem)
 			if (j->jointype == JOIN_SEMI)
 				ojscope = NULL;
 			else
-			{
 				ojscope = bms_union(sjinfo->min_lefthand,
 									sjinfo->min_righthand);
-
-				/*
-				 * Add back any commutable lower OJ relids that were removed
-				 * from min_lefthand or min_righthand, else the ojscope
-				 * cross-check in distribute_qual_to_rels will complain.  If
-				 * any such OJs were removed, we will postpone processing of
-				 * non-degenerate clauses, so this addition doesn't affect
-				 * anything except that cross-check and some Asserts.  Real
-				 * clause positioning decisions will be made later, when we
-				 * revisit the postponed clauses.
-				 */
-				if (sjinfo->commute_below)
-					ojscope = bms_add_members(ojscope, sjinfo->commute_below);
-			}
 		}
 		else
 		{
@@ -1221,7 +1206,21 @@ deconstruct_distribute(PlannerInfo *root, JoinTreeItem *jtitem)
 		 * they will drop down below this join anyway.)
 		 */
 		if (j->jointype == JOIN_LEFT && sjinfo->lhs_strict)
+		{
 			postponed_oj_qual_list = &jtitem->oj_joinclauses;
+
+			/*
+			 * Add back any commutable lower OJ relids that were removed from
+			 * min_lefthand or min_righthand, else the ojscope cross-check in
+			 * distribute_qual_to_rels will complain.  Since we are postponing
+			 * processing of non-degenerate clauses, this addition doesn't
+			 * affect anything except that cross-check.  Real clause
+			 * positioning decisions will be made later, when we revisit the
+			 * postponed clauses.
+			 */
+			if (sjinfo->commute_below)
+				ojscope = bms_add_members(ojscope, sjinfo->commute_below);
+		}
 		else
 			postponed_oj_qual_list = NULL;
 
