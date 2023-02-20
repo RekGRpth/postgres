@@ -13,6 +13,21 @@
 #ifndef PG_BITUTILS_H
 #define PG_BITUTILS_H
 
+#ifdef _MSC_VER
+#include <intrin.h>
+#define HAVE_BITSCAN_FORWARD
+#define HAVE_BITSCAN_REVERSE
+
+#else
+#if defined(HAVE__BUILTIN_CTZ)
+#define HAVE_BITSCAN_FORWARD
+#endif
+
+#if defined(HAVE__BUILTIN_CLZ)
+#define HAVE_BITSCAN_REVERSE
+#endif
+#endif							/* _MSC_VER */
+
 extern PGDLLIMPORT const uint8 pg_leftmost_one_pos[256];
 extern PGDLLIMPORT const uint8 pg_rightmost_one_pos[256];
 extern PGDLLIMPORT const uint8 pg_number_of_ones[256];
@@ -26,10 +41,14 @@ static inline int
 pg_leftmost_one_pos32(uint32 word)
 {
 #ifdef HAVE__BUILTIN_CLZ
-	Assert(word != 0);
+	int			bitscan_result;
+#elif defined(_MSC_VER)
+	unsigned long bitscan_result;
+	bool		non_zero;
+#endif
 
-	return 31 - __builtin_clz(word);
-#else
+#if !defined(HAVE_BITSCAN_REVERSE) || defined(USE_ASSERT_CHECKING)
+	int			result;
 	int			shift = 32 - 8;
 
 	Assert(word != 0);
@@ -37,8 +56,23 @@ pg_leftmost_one_pos32(uint32 word)
 	while ((word >> shift) == 0)
 		shift -= 8;
 
-	return shift + pg_leftmost_one_pos[(word >> shift) & 255];
-#endif							/* HAVE__BUILTIN_CLZ */
+	result = shift + pg_leftmost_one_pos[(word >> shift) & 255];
+#endif
+
+#ifdef HAVE_BITSCAN_REVERSE
+
+#if defined(HAVE__BUILTIN_CLZ)
+	bitscan_result = 31 - __builtin_clz(word);
+#elif defined(_MSC_VER)
+	non_zero = _BitScanReverse(&bitscan_result, word);
+	Assert(non_zero);
+#endif
+	Assert(bitscan_result == result);
+	return bitscan_result;
+
+#else
+	return result;
+#endif							/* HAVE_BITSCAN_REVERSE */
 }
 
 /*
@@ -49,16 +83,14 @@ static inline int
 pg_leftmost_one_pos64(uint64 word)
 {
 #ifdef HAVE__BUILTIN_CLZ
-	Assert(word != 0);
-
-#if defined(HAVE_LONG_INT_64)
-	return 63 - __builtin_clzl(word);
-#elif defined(HAVE_LONG_LONG_INT_64)
-	return 63 - __builtin_clzll(word);
-#else
-#error must have a working 64-bit integer datatype
+	int			bitscan_result;
+#elif defined(_MSC_VER)
+	unsigned long bitscan_result;
+	bool		non_zero;
 #endif
-#else							/* !HAVE__BUILTIN_CLZ */
+
+#if !defined(HAVE_BITSCAN_REVERSE) || defined(USE_ASSERT_CHECKING)
+	int			result;
 	int			shift = 64 - 8;
 
 	Assert(word != 0);
@@ -66,8 +98,30 @@ pg_leftmost_one_pos64(uint64 word)
 	while ((word >> shift) == 0)
 		shift -= 8;
 
-	return shift + pg_leftmost_one_pos[(word >> shift) & 255];
+	result = shift + pg_leftmost_one_pos[(word >> shift) & 255];
+#endif
+
+#ifdef HAVE_BITSCAN_REVERSE
+
+#if defined(HAVE__BUILTIN_CLZ)
+#if defined(HAVE_LONG_INT_64)
+	bitscan_result = 63 - __builtin_clzl(word);
+#elif defined(HAVE_LONG_LONG_INT_64)
+	bitscan_result = 63 - __builtin_clzll(word);
+#else
+#error must have a working 64-bit integer datatype
+#endif							/* HAVE_LONG_INT_64 */
+
+#elif defined(_MSC_VER)
+	non_zero = _BitScanReverse64(&bitscan_result, word);
+	Assert(non_zero);
 #endif							/* HAVE__BUILTIN_CLZ */
+	Assert(bitscan_result == result);
+	return bitscan_result;
+
+#else
+	return result;
+#endif							/* HAVE_BITSCAN_REVERSE */
 }
 
 /*
@@ -79,10 +133,15 @@ static inline int
 pg_rightmost_one_pos32(uint32 word)
 {
 #ifdef HAVE__BUILTIN_CTZ
-	Assert(word != 0);
+	const uint32 orig_word = word;
+	int			bitscan_result;
+#elif defined(_MSC_VER)
+	const unsigned long orig_word = word;
+	unsigned long bitscan_result;
+	bool		non_zero;
+#endif
 
-	return __builtin_ctz(word);
-#else
+#if !defined(HAVE_BITSCAN_FORWARD) || defined(USE_ASSERT_CHECKING)
 	int			result = 0;
 
 	Assert(word != 0);
@@ -93,8 +152,22 @@ pg_rightmost_one_pos32(uint32 word)
 		result += 8;
 	}
 	result += pg_rightmost_one_pos[word & 255];
+#endif
+
+#ifdef HAVE_BITSCAN_FORWARD
+
+#if defined(HAVE__BUILTIN_CTZ)
+	bitscan_result = __builtin_ctz(orig_word);
+#elif defined(_MSC_VER)
+	non_zero = _BitScanForward(&bitscan_result, orig_word);
+	Assert(non_zero);
+#endif
+	Assert(bitscan_result == result);
+	return bitscan_result;
+
+#else
 	return result;
-#endif							/* HAVE__BUILTIN_CTZ */
+#endif							/* HAVE_BITSCAN_FORWARD */
 }
 
 /*
@@ -105,16 +178,15 @@ static inline int
 pg_rightmost_one_pos64(uint64 word)
 {
 #ifdef HAVE__BUILTIN_CTZ
-	Assert(word != 0);
-
-#if defined(HAVE_LONG_INT_64)
-	return __builtin_ctzl(word);
-#elif defined(HAVE_LONG_LONG_INT_64)
-	return __builtin_ctzll(word);
-#else
-#error must have a working 64-bit integer datatype
+	const uint64 orig_word = word;
+	int			bitscan_result;
+#elif defined(_MSC_VER)
+	const unsigned __int64 orig_word = word;
+	unsigned long bitscan_result;
+	bool		non_zero;
 #endif
-#else							/* !HAVE__BUILTIN_CTZ */
+
+#if !defined(HAVE_BITSCAN_FORWARD) || defined(USE_ASSERT_CHECKING)
 	int			result = 0;
 
 	Assert(word != 0);
@@ -125,8 +197,29 @@ pg_rightmost_one_pos64(uint64 word)
 		result += 8;
 	}
 	result += pg_rightmost_one_pos[word & 255];
-	return result;
+#endif
+
+#ifdef HAVE_BITSCAN_FORWARD
+
+#if defined(HAVE__BUILTIN_CTZ)
+#if defined(HAVE_LONG_INT_64)
+	bitscan_result = __builtin_ctzl(orig_word);
+#elif defined(HAVE_LONG_LONG_INT_64)
+	bitscan_result = __builtin_ctzll(orig_word);
+#else
+#error must have a working 64-bit integer datatype
+#endif							/* HAVE_LONG_INT_64 */
+
+#elif defined(_MSC_VER)
+	non_zero = _BitScanForward64(&bitscan_result, orig_word);
+	Assert(non_zero);
 #endif							/* HAVE__BUILTIN_CTZ */
+	Assert(bitscan_result == result);
+	return bitscan_result;
+
+#else
+	return result;
+#endif							/* HAVE_BITSCAN_FORWARD */
 }
 
 /*
