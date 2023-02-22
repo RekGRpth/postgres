@@ -999,6 +999,10 @@ ROLLBACK;
 
 -- try updating the partition key column
 BEGIN;
+CREATE FUNCTION merge_func() RETURNS integer LANGUAGE plpgsql AS $$
+DECLARE
+  result integer;
+BEGIN
 MERGE INTO pa_target t
   USING pa_source s
   ON t.tid = s.sid
@@ -1006,6 +1010,13 @@ MERGE INTO pa_target t
     UPDATE SET tid = tid + 1, balance = balance + delta, val = val || ' updated by merge'
   WHEN NOT MATCHED THEN
     INSERT VALUES (sid, delta, 'inserted by merge');
+IF FOUND THEN
+  GET DIAGNOSTICS result := ROW_COUNT;
+END IF;
+RETURN result;
+END;
+$$;
+SELECT merge_func();
 SELECT * FROM pa_target ORDER BY tid;
 ROLLBACK;
 
@@ -1069,6 +1080,18 @@ MERGE INTO pa_target t
   WHEN NOT MATCHED THEN
     INSERT VALUES (sid, delta, 'inserted by merge');
 SELECT * FROM pa_target ORDER BY tid;
+ROLLBACK;
+
+-- test RLS enforcement
+BEGIN;
+ALTER TABLE pa_target ENABLE ROW LEVEL SECURITY;
+ALTER TABLE pa_target FORCE ROW LEVEL SECURITY;
+CREATE POLICY pa_target_pol ON pa_target USING (tid != 0);
+MERGE INTO pa_target t
+  USING pa_source s
+  ON t.tid = s.sid AND t.tid IN (1,2,3,4)
+  WHEN MATCHED THEN
+    UPDATE SET tid = tid - 1;
 ROLLBACK;
 
 DROP TABLE pa_source;
