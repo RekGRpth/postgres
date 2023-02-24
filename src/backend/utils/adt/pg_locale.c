@@ -1481,6 +1481,15 @@ report_newlocale_failure(const char *localename)
 }
 #endif							/* HAVE_LOCALE_T */
 
+bool
+pg_locale_deterministic(pg_locale_t locale)
+{
+	/* default locale must always be deterministic */
+	if (locale == NULL)
+		return true;
+	else
+		return locale->deterministic;
+}
 
 /*
  * Create a locale_t from a collation OID.  Results are cached for the
@@ -2096,6 +2105,7 @@ pg_strxfrm_libc(char *dest, const char *src, size_t destsize,
 #else
 	/* shouldn't happen */
 	elog(ERROR, "unsupported collprovider: %c", locale->provider);
+	return 0; /* keep compiler quiet */
 #endif
 }
 
@@ -2291,6 +2301,8 @@ pg_strxfrm_enabled(pg_locale_t locale)
 	else
 		/* shouldn't happen */
 		elog(ERROR, "unsupported collprovider: %c", locale->provider);
+
+	return false; /* keep compiler quiet */
 }
 
 /*
@@ -2376,6 +2388,8 @@ pg_strxfrm_prefix_enabled(pg_locale_t locale)
 	else
 		/* shouldn't happen */
 		elog(ERROR, "unsupported collprovider: %c", locale->provider);
+
+	return false; /* keep compiler quiet */
 }
 
 /*
@@ -2395,7 +2409,7 @@ size_t
 pg_strxfrm_prefix(char *dest, const char *src, size_t destsize,
 				  pg_locale_t locale)
 {
-	size_t result;
+	size_t result = 0; /* keep compiler quiet */
 
 	if (!locale || locale->provider == COLLPROVIDER_LIBC)
 		elog(ERROR, "collprovider '%c' does not support pg_strxfrm_prefix()",
@@ -2432,7 +2446,7 @@ size_t
 pg_strnxfrm_prefix(char *dest, size_t destsize, const char *src,
 				   size_t srclen, pg_locale_t locale)
 {
-	size_t result;
+	size_t result = 0; /* keep compiler quiet */
 
 	if (!locale || locale->provider == COLLPROVIDER_LIBC)
 		elog(ERROR, "collprovider '%c' does not support pg_strnxfrm_prefix()",

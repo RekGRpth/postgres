@@ -715,12 +715,11 @@ main(int argc, char **argv)
 		case PG_COMPRESSION_NONE:
 			/* fallthrough */
 		case PG_COMPRESSION_GZIP:
+			/* fallthrough */
+		case PG_COMPRESSION_LZ4:
 			break;
 		case PG_COMPRESSION_ZSTD:
 			pg_fatal("compression with %s is not yet supported", "ZSTD");
-			break;
-		case PG_COMPRESSION_LZ4:
-			pg_fatal("compression with %s is not yet supported", "LZ4");
 			break;
 	}
 
@@ -16432,7 +16431,12 @@ dumpConstraint(Archive *fout, const ConstraintInfo *coninfo)
 		{
 			appendPQExpBufferStr(q,
 								 coninfo->contype == 'p' ? "PRIMARY KEY" : "UNIQUE");
-			if (indxinfo->indnullsnotdistinct)
+			/*
+			 * PRIMARY KEY constraints should not be using NULLS NOT DISTINCT
+			 * indexes. Being able to create this was fixed, but we need to
+			 * make the index distinct in order to be able to restore the dump.
+			 */
+			if (indxinfo->indnullsnotdistinct && coninfo->contype != 'p')
 				appendPQExpBufferStr(q, " NULLS NOT DISTINCT");
 			appendPQExpBufferStr(q, " (");
 			for (k = 0; k < indxinfo->indnkeyattrs; k++)
