@@ -4,7 +4,7 @@
 
 /* skip test if not UTF8 server encoding or no ICU collations installed */
 SELECT getdatabaseencoding() <> 'UTF8' OR
-       (SELECT count(*) FROM pg_collation WHERE collprovider = 'i') = 0
+       (SELECT count(*) FROM pg_collation WHERE collprovider = 'i' AND collname <> 'unicode') = 0
        AS skip_test \gset
 \if :skip_test
 \quit
@@ -442,6 +442,12 @@ select textrange_en_us('A','Z') @> 'b'::text;
 
 drop type textrange_c;
 drop type textrange_en_us;
+
+
+-- standard collations
+
+SELECT * FROM collate_test2 ORDER BY b COLLATE UCS_BASIC;
+SELECT * FROM collate_test2 ORDER BY b COLLATE UNICODE;
 
 
 -- test ICU collation customization
