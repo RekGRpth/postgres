@@ -1279,6 +1279,13 @@ setup_config(void)
 	conflines = replace_guc_value(conflines, "dynamic_shared_memory_type",
 								  dynamic_shared_memory_type, false);
 
+	/* Caution: these depend on wal_segment_size_mb, they're not constants */
+	conflines = replace_guc_value(conflines, "min_wal_size",
+								  pretty_wal_size(DEFAULT_MIN_WAL_SEGS), false);
+
+	conflines = replace_guc_value(conflines, "max_wal_size",
+								  pretty_wal_size(DEFAULT_MAX_WAL_SEGS), false);
+
 	/*
 	 * Fix up various entries to match the true compile-time defaults.  Since
 	 * these are indeed defaults, keep the postgresql.conf lines commented.
@@ -1288,12 +1295,6 @@ setup_config(void)
 
 	conflines = replace_guc_value(conflines, "port",
 								  DEF_PGPORT_STR, true);
-
-	conflines = replace_guc_value(conflines, "min_wal_size",
-								  pretty_wal_size(DEFAULT_MIN_WAL_SEGS), true);
-
-	conflines = replace_guc_value(conflines, "max_wal_size",
-								  pretty_wal_size(DEFAULT_MAX_WAL_SEGS), true);
 
 #if DEFAULT_BACKEND_FLUSH_AFTER > 0
 	snprintf(repltok, sizeof(repltok), "%dkB",
@@ -1700,7 +1701,7 @@ setup_collation(FILE *cmdfd)
 	 * that they win if libc defines a locale with the same name.
 	 */
 	PG_CMD_PRINTF("INSERT INTO pg_collation (oid, collname, collnamespace, collowner, collprovider, collisdeterministic, collencoding, colliculocale)"
-				  "VALUES (pg_nextoid('pg_catalog.pg_collation', 'oid', 'pg_catalog.pg_collation_oid_index'), 'unicode', 'pg_catalog'::regnamespace, %u, '%c', true, -1, '');\n\n",
+				  "VALUES (pg_nextoid('pg_catalog.pg_collation', 'oid', 'pg_catalog.pg_collation_oid_index'), 'unicode', 'pg_catalog'::regnamespace, %u, '%c', true, -1, 'und');\n\n",
 				  BOOTSTRAP_SUPERUSERID, COLLPROVIDER_ICU);
 
 	PG_CMD_PRINTF("INSERT INTO pg_collation (oid, collname, collnamespace, collowner, collprovider, collisdeterministic, collencoding, collcollate, collctype)"
