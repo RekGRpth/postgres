@@ -233,8 +233,10 @@ elif host_system == 'darwin'
   sysroot_args = [files('src/tools/darwin_sysroot'), get_option('darwin_sysroot')]
   pg_sysroot = run_command(sysroot_args, check:true).stdout().strip()
   message('darwin sysroot: @0@'.format(pg_sysroot))
-  cflags += ['-isysroot', pg_sysroot]
-  ldflags += ['-isysroot', pg_sysroot]
+  if pg_sysroot != ''
+    cflags += ['-isysroot', pg_sysroot]
+    ldflags += ['-isysroot', pg_sysroot]
+  endif
   # meson defaults to -Wl,-undefined,dynamic_lookup for modules, which we
   # don't want because a) it's different from what we do for autoconf, b) it
   # causes warnings starting in macOS Ventura
@@ -2942,7 +2944,7 @@ install_quiet = custom_target('install-quiet',
   output: 'install-quiet',
   build_always_stale: true,
   build_by_default: false,
-  command: meson_args + ['install', '--quiet', '--no-rebuild'],
+  command: [meson_bin, meson_args, 'install', '--quiet', '--no-rebuild'],
   depends: all_built,
 )
 

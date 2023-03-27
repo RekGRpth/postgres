@@ -1285,15 +1285,12 @@ lookup_collation_cache(Oid collation, bool set_flags)
 		if (collform->collprovider == COLLPROVIDER_LIBC)
 		{
 			Datum		datum;
-			bool		isnull;
 			const char *collcollate;
 			const char *collctype;
 
-			datum = SysCacheGetAttr(COLLOID, tp, Anum_pg_collation_collcollate, &isnull);
-			Assert(!isnull);
+			datum = SysCacheGetAttrNotNull(COLLOID, tp, Anum_pg_collation_collcollate);
 			collcollate = TextDatumGetCString(datum);
-			datum = SysCacheGetAttr(COLLOID, tp, Anum_pg_collation_collctype, &isnull);
-			Assert(!isnull);
+			datum = SysCacheGetAttrNotNull(COLLOID, tp, Anum_pg_collation_collctype);
 			collctype = TextDatumGetCString(datum);
 
 			cache_entry->collate_is_c = ((strcmp(collcollate, "C") == 0) ||
@@ -1577,11 +1574,9 @@ pg_newlocale_from_collation(Oid collid)
 			const char *collctype pg_attribute_unused();
 			locale_t	loc;
 
-			datum = SysCacheGetAttr(COLLOID, tp, Anum_pg_collation_collcollate, &isnull);
-			Assert(!isnull);
+			datum = SysCacheGetAttrNotNull(COLLOID, tp, Anum_pg_collation_collcollate);
 			collcollate = TextDatumGetCString(datum);
-			datum = SysCacheGetAttr(COLLOID, tp, Anum_pg_collation_collctype, &isnull);
-			Assert(!isnull);
+			datum = SysCacheGetAttrNotNull(COLLOID, tp, Anum_pg_collation_collctype);
 			collctype = TextDatumGetCString(datum);
 
 			if (strcmp(collcollate, collctype) == 0)
@@ -1637,8 +1632,7 @@ pg_newlocale_from_collation(Oid collid)
 			const char *iculocstr;
 			const char *icurules;
 
-			datum = SysCacheGetAttr(COLLOID, tp, Anum_pg_collation_colliculocale, &isnull);
-			Assert(!isnull);
+			datum = SysCacheGetAttrNotNull(COLLOID, tp, Anum_pg_collation_colliculocale);
 			iculocstr = TextDatumGetCString(datum);
 
 			datum = SysCacheGetAttr(COLLOID, tp, Anum_pg_collation_collicurules, &isnull);
@@ -1659,8 +1653,7 @@ pg_newlocale_from_collation(Oid collid)
 
 			collversionstr = TextDatumGetCString(datum);
 
-			datum = SysCacheGetAttr(COLLOID, tp, collform->collprovider == COLLPROVIDER_ICU ? Anum_pg_collation_colliculocale : Anum_pg_collation_collcollate, &isnull);
-			Assert(!isnull);
+			datum = SysCacheGetAttrNotNull(COLLOID, tp, collform->collprovider == COLLPROVIDER_ICU ? Anum_pg_collation_colliculocale : Anum_pg_collation_collcollate);
 
 			actual_versionstr = get_collation_actual_version(collform->collprovider,
 															 TextDatumGetCString(datum));
@@ -1778,7 +1771,7 @@ get_collation_actual_version(char collprovider, const char *collcollate)
 							collcollate,
 							GetLastError())));
 		}
-		collversion = psprintf("%ld.%ld,%ld.%ld",
+		collversion = psprintf("%lu.%lu,%lu.%lu",
 							   (version.dwNLSVersion >> 8) & 0xFFFF,
 							   version.dwNLSVersion & 0xFF,
 							   (version.dwDefinedVersion >> 8) & 0xFFFF,
@@ -2507,16 +2500,15 @@ pg_ucol_open(const char *loc_str)
 
 	/*
 	 * Must never open default collator, because it depends on the environment
-	 * and may change at any time.
+	 * and may change at any time. Should not happen, but check here to catch
+	 * bugs that might be hard to catch otherwise.
 	 *
 	 * NB: the default collator is not the same as the collator for the root
 	 * locale. The root locale may be specified as the empty string, "und", or
 	 * "root". The default collator is opened by passing NULL to ucol_open().
 	 */
 	if (loc_str == NULL)
-		ereport(ERROR,
-				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-				 errmsg("opening default collator is not supported")));
+		elog(ERROR, "opening default collator is not supported");
 
 	/*
 	 * In ICU versions 54 and earlier, "und" is not a recognized spelling of
@@ -2811,9 +2803,12 @@ icu_set_collation_attributes(UCollator *collator, const char *loc)
 			 * message across ICU versions.
 			 */
 			if (U_FAILURE(status))
+			{
+				ucol_close(collator);
 				ereport(ERROR,
 						(errmsg("could not open collator for locale \"%s\": %s",
 								loc, u_errorName(status))));
+			}
 		}
 	}
 
