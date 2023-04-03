@@ -2623,6 +2623,13 @@ lazy_check_wraparound_failsafe(LVRelState *vacrel)
 	{
 		vacrel->failsafe_active = true;
 
+		/*
+		 * Abandon use of a buffer access strategy to allow use of all of
+		 * shared buffers.  We assume the caller who allocated the memory for
+		 * the BufferAccessStrategy will free it.
+		 */
+		vacrel->bstrategy = NULL;
+
 		/* Disable index vacuuming, index cleanup, and heap rel truncation */
 		vacrel->do_index_vacuuming = false;
 		vacrel->do_index_cleanup = false;
@@ -2704,13 +2711,13 @@ lazy_vacuum_one_index(Relation indrel, IndexBulkDeleteResult *istat,
 	LVSavedErrInfo saved_err_info;
 
 	ivinfo.index = indrel;
+	ivinfo.heaprel = vacrel->rel;
 	ivinfo.analyze_only = false;
 	ivinfo.report_progress = false;
 	ivinfo.estimated_count = true;
 	ivinfo.message_level = DEBUG2;
 	ivinfo.num_heap_tuples = reltuples;
 	ivinfo.strategy = vacrel->bstrategy;
-	ivinfo.heaprel = vacrel->rel;
 
 	/*
 	 * Update error traceback information.
@@ -2753,6 +2760,7 @@ lazy_cleanup_one_index(Relation indrel, IndexBulkDeleteResult *istat,
 	LVSavedErrInfo saved_err_info;
 
 	ivinfo.index = indrel;
+	ivinfo.heaprel = vacrel->rel;
 	ivinfo.analyze_only = false;
 	ivinfo.report_progress = false;
 	ivinfo.estimated_count = estimated_count;
@@ -2760,7 +2768,6 @@ lazy_cleanup_one_index(Relation indrel, IndexBulkDeleteResult *istat,
 
 	ivinfo.num_heap_tuples = reltuples;
 	ivinfo.strategy = vacrel->bstrategy;
-	ivinfo.heaprel = vacrel->rel;
 
 	/*
 	 * Update error traceback information.

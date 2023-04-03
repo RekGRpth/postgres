@@ -836,6 +836,7 @@ _bt_log_reuse_page(Relation rel, Relation heaprel, BlockNumber blkno,
 	 */
 
 	/* XLOG stuff */
+	xlrec_reuse.isCatalogRel = RelationIsAccessibleInLogicalDecoding(heaprel);
 	xlrec_reuse.locator = rel->rd_locator;
 	xlrec_reuse.block = blkno;
 	xlrec_reuse.snapshotConflictHorizon = safexid;
@@ -934,7 +935,7 @@ _bt_getbuf(Relation rel, Relation heaprel, BlockNumber blkno, int access)
 					return buf;
 				}
 
-				if (BTPageIsRecyclable(page))
+				if (BTPageIsRecyclable(page, heaprel))
 				{
 					/*
 					 * If we are generating WAL for Hot Standby then create a
@@ -1358,6 +1359,7 @@ _bt_delitems_delete(Relation rel, Relation heaprel, Buffer buf,
 		XLogRecPtr	recptr;
 		xl_btree_delete xlrec_delete;
 
+		xlrec_delete.isCatalogRel = RelationIsAccessibleInLogicalDecoding(heaprel);
 		xlrec_delete.snapshotConflictHorizon = snapshotConflictHorizon;
 		xlrec_delete.ndeleted = ndeletable;
 		xlrec_delete.nupdated = nupdatable;
@@ -2961,6 +2963,7 @@ void
 _bt_pendingfsm_finalize(Relation rel, BTVacState *vstate)
 {
 	IndexBulkDeleteResult *stats = vstate->stats;
+	Relation    heaprel = vstate->info->heaprel;
 
 	Assert(stats->pages_newly_deleted >= vstate->npendingpages);
 
@@ -2993,7 +2996,7 @@ _bt_pendingfsm_finalize(Relation rel, BTVacState *vstate)
 	 * essential; GlobalVisCheckRemovableFullXid() will not reliably recognize
 	 * that it is now safe to recycle newly deleted pages without this step.
 	 */
-	GetOldestNonRemovableTransactionId(NULL);
+	GetOldestNonRemovableTransactionId(heaprel);
 
 	for (int i = 0; i < vstate->npendingpages; i++)
 	{
@@ -3008,7 +3011,7 @@ _bt_pendingfsm_finalize(Relation rel, BTVacState *vstate)
 		 * must be non-recyclable too, since _bt_pendingfsm_add() adds pages
 		 * to the array in safexid order.
 		 */
-		if (!GlobalVisCheckRemovableFullXid(NULL, safexid))
+		if (!GlobalVisCheckRemovableFullXid(heaprel, safexid))
 			break;
 
 		RecordFreeIndexPage(rel, target);
