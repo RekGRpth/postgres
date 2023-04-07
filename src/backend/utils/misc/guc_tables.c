@@ -2225,6 +2225,17 @@ struct config_int ConfigureNamesInt[] =
 	},
 
 	{
+		{"vacuum_buffer_usage_limit", PGC_USERSET, RESOURCES_MEM,
+			gettext_noop("Sets the buffer pool size for VACUUM, ANALYZE, and autovacuum."),
+			NULL,
+			GUC_UNIT_KB
+		},
+		&VacuumBufferUsageLimit,
+		256, 0, MAX_BAS_VAC_RING_SIZE_KB,
+		check_vacuum_buffer_usage_limit, NULL, NULL
+	},
+
+	{
 		{"shared_memory_size", PGC_INTERNAL, PRESET_OPTIONS,
 			gettext_noop("Shows the size of the server's main shared memory area (rounded up to the nearest MB)."),
 			NULL,
@@ -2588,9 +2599,9 @@ struct config_int ConfigureNamesInt[] =
 	{
 		{"max_locks_per_transaction", PGC_POSTMASTER, LOCK_MANAGEMENT,
 			gettext_noop("Sets the maximum number of locks per transaction."),
-			gettext_noop("The shared lock table is sized on the assumption that "
-						 "at most max_locks_per_transaction * max_connections distinct "
-						 "objects will need to be locked at any one time.")
+			gettext_noop("The shared lock table is sized on the assumption that at most "
+						 "max_locks_per_transaction objects per server process or prepared "
+						 "transaction will need to be locked at any one time.")
 		},
 		&max_locks_per_xact,
 		64, 10, INT_MAX,
@@ -2601,8 +2612,8 @@ struct config_int ConfigureNamesInt[] =
 		{"max_pred_locks_per_transaction", PGC_POSTMASTER, LOCK_MANAGEMENT,
 			gettext_noop("Sets the maximum number of predicate locks per transaction."),
 			gettext_noop("The shared predicate lock table is sized on the assumption that "
-						 "at most max_pred_locks_per_transaction * max_connections distinct "
-						 "objects will need to be locked at any one time.")
+						 "at most max_pred_locks_per_transaction objects per server process "
+						 "or prepared transaction will need to be locked at any one time.")
 		},
 		&max_predicate_locks_per_xact,
 		64, 10, INT_MAX,

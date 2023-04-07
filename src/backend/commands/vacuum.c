@@ -48,6 +48,7 @@
 #include "pgstat.h"
 #include "postmaster/autovacuum.h"
 #include "postmaster/bgworker_internals.h"
+#include "postmaster/interrupt.h"
 #include "storage/bufmgr.h"
 #include "storage/lmgr.h"
 #include "storage/pmsignal.h"
@@ -56,6 +57,7 @@
 #include "utils/acl.h"
 #include "utils/fmgroids.h"
 #include "utils/guc.h"
+#include "utils/guc_hooks.h"
 #include "utils/memutils.h"
 #include "utils/pg_rusage.h"
 #include "utils/snapmgr.h"
@@ -71,6 +73,30 @@ int			vacuum_multixact_freeze_min_age;
 int			vacuum_multixact_freeze_table_age;
 int			vacuum_failsafe_age;
 int			vacuum_multixact_failsafe_age;
+
+/*
+ * Variables for cost-based vacuum delay. The defaults differ between
+ * autovacuum and vacuum. They should be set with the appropriate GUC value in
+ * vacuum code. They are initialized here to the defaults for client backends
+ * executing VACUUM or ANALYZE.
+ */
+double		vacuum_cost_delay = 0;
+int			vacuum_cost_limit = 200;
+
+/*
+ * VacuumFailsafeActive is a defined as a global so that we can determine
+ * whether or not to re-enable cost-based vacuum delay when vacuuming a table.
+ * If failsafe mode has been engaged, we will not re-enable cost-based delay
+ * for the table until after vacuuming has completed, regardless of other
+ * settings.
+ *
+ * Only VACUUM code should inspect this variable and only table access methods
+ * should set it to true. In Table AM-agnostic VACUUM code, this variable is
+ * inspected to determine whether or not to allow cost-based delays. Table AMs
+ * are free to set it if they desire this behavior, but it is false by default
+ * and reset to false in between vacuuming each relation.
+ */
+bool		VacuumFailsafeActive = false;
 
 /*
  * Variables for cost-based parallel vacuum.  See comments atop
@@ -96,6 +122,26 @@ static bool vac_tid_reaped(ItemPointer itemptr, void *state);
 static int	vac_cmp_itemptr(const void *left, const void *right);
 
 /*
+ * GUC check function to ensure GUC value specified is within the allowable
+ * range.
+ */
+bool
+check_vacuum_buffer_usage_limit(int *newval, void **extra,
+								GucSource source)
+{
+	/* Value upper and lower hard limits are inclusive */
+	if (*newval == 0 || (*newval >= MIN_BAS_VAC_RING_SIZE_KB &&
+						 *newval <= MAX_BAS_VAC_RING_SIZE_KB))
+		return true;
+
+	/* Value does not fall within any allowable range */
+	GUC_check_errdetail("\"vacuum_buffer_usage_limit\" must be 0 or between %d kB and %d kB",
+						MIN_BAS_VAC_RING_SIZE_KB, MAX_BAS_VAC_RING_SIZE_KB);
+
+	return false;
+}
+
+/*
  * Primary entry point for manual VACUUM and ANALYZE commands
  *
  * This is mainly a preparation wrapper for the real operations that will
@@ -114,6 +160,7 @@ ExecVacuum(ParseState *pstate, VacuumStmt *vacstmt, bool isTopLevel)
 	bool		disable_page_skipping = false;
 	bool		process_main = true;
 	bool		process_toast = true;
+	int			ring_size;
 	bool		skip_database_stats = false;
 	bool		only_database_stats = false;
 	MemoryContext vac_context;
@@ -126,6 +173,12 @@ ExecVacuum(ParseState *pstate, VacuumStmt *vacstmt, bool isTopLevel)
 	/* By default parallel vacuum is enabled */
 	params.nworkers = 0;
 
+	/*
+	 * Set this to an invalid value so it is clear whether or not a
+	 * BUFFER_USAGE_LIMIT was specified when making the access strategy.
+	 */
+	ring_size = -1;
+
 	/* Parse options list */
 	foreach(lc, vacstmt->options)
 	{
@@ -136,6 +189,48 @@ ExecVacuum(ParseState *pstate, VacuumStmt *vacstmt, bool isTopLevel)
 			verbose = defGetBoolean(opt);
 		else if (strcmp(opt->defname, "skip_locked") == 0)
 			skip_locked = defGetBoolean(opt);
+		else if (strcmp(opt->defname, "buffer_usage_limit") == 0)
+		{
+			const char *hintmsg;
+			int			result;
+			char	   *vac_buffer_size;
+
+			if (opt->arg == NULL)
+			{
+				ereport(ERROR,
+						(errcode(ERRCODE_SYNTAX_ERROR),
+						 errmsg("buffer_usage_limit option requires a valid value"),
+						 parser_errposition(pstate, opt->location)));
+			}
+
+			vac_buffer_size = defGetString(opt);
+
+			if (!parse_int(vac_buffer_size, &result, GUC_UNIT_KB, &hintmsg))
+			{
+				ereport(ERROR,
+						(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+						 errmsg("value: \"%s\": is invalid for buffer_usage_limit",
+								vac_buffer_size),
+						 hintmsg ? errhint("%s", _(hintmsg)) : 0));
+			}
+
+			/*
+			 * Check that the specified size falls within the hard upper and
+			 * lower limits if it is not 0.  We explicitly disallow -1 since
+			 * that behavior can be obtained by not specifying
+			 * BUFFER_USAGE_LIMIT.
+			 */
+			if (result != 0 &&
+				(result < MIN_BAS_VAC_RING_SIZE_KB || result > MAX_BAS_VAC_RING_SIZE_KB))
+			{
+				ereport(ERROR,
+						(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+						 errmsg("buffer_usage_limit option must be 0 or between %d kB and %d kB",
+								MIN_BAS_VAC_RING_SIZE_KB, MAX_BAS_VAC_RING_SIZE_KB)));
+			}
+
+			ring_size = result;
+		}
 		else if (!vacstmt->is_vacuumcmd)
 			ereport(ERROR,
 					(errcode(ERRCODE_SYNTAX_ERROR),
@@ -241,6 +336,17 @@ ExecVacuum(ParseState *pstate, VacuumStmt *vacstmt, bool isTopLevel)
 				 errmsg("VACUUM FULL cannot be performed in parallel")));
 
 	/*
+	 * BUFFER_USAGE_LIMIT does nothing for VACUUM (FULL) so just raise an
+	 * ERROR for that case.  VACUUM (FULL, ANALYZE) does make use of it, so
+	 * we'll permit that.
+	 */
+	if (ring_size != -1 && (params.options & VACOPT_FULL) &&
+		!(params.options & VACOPT_ANALYZE))
+		ereport(ERROR,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				 errmsg("BUFFER_USAGE_LIMIT cannot be specified for VACUUM FULL")));
+
+	/*
 	 * Make sure VACOPT_ANALYZE is specified if any column lists are present.
 	 */
 	if (!(params.options & VACOPT_ANALYZE))
@@ -341,7 +447,19 @@ ExecVacuum(ParseState *pstate, VacuumStmt *vacstmt, bool isTopLevel)
 
 		MemoryContext old_context = MemoryContextSwitchTo(vac_context);
 
-		bstrategy = GetAccessStrategy(BAS_VACUUM);
+		Assert(ring_size >= -1);
+
+		/*
+		 * If BUFFER_USAGE_LIMIT was specified by the VACUUM or ANALYZE
+		 * command, it overrides the value of VacuumBufferUsageLimit.  Either
+		 * value may be 0, in which case GetAccessStrategyWithSize() will
+		 * return NULL, effectively allowing full use of shared buffers.
+		 */
+		if (ring_size == -1)
+			ring_size = VacuumBufferUsageLimit;
+
+		bstrategy = GetAccessStrategyWithSize(BAS_VACUUM, ring_size);
+
 		MemoryContextSwitchTo(old_context);
 	}
 
@@ -500,7 +618,8 @@ vacuum(List *relations, VacuumParams *params, BufferAccessStrategy bstrategy,
 		ListCell   *cur;
 
 		in_vacuum = true;
-		VacuumCostActive = (VacuumCostDelay > 0);
+		VacuumFailsafeActive = false;
+		VacuumUpdateCosts();
 		VacuumCostBalance = 0;
 		VacuumPageHit = 0;
 		VacuumPageMiss = 0;
@@ -554,12 +673,20 @@ vacuum(List *relations, VacuumParams *params, BufferAccessStrategy bstrategy,
 					CommandCounterIncrement();
 				}
 			}
+
+			/*
+			 * Ensure VacuumFailsafeActive has been reset before vacuuming the
+			 * next relation.
+			 */
+			VacuumFailsafeActive = false;
 		}
 	}
 	PG_FINALLY();
 	{
 		in_vacuum = false;
 		VacuumCostActive = false;
+		VacuumFailsafeActive = false;
+		VacuumCostBalance = 0;
 	}
 	PG_END_TRY();
 
@@ -2220,7 +2347,28 @@ vacuum_delay_point(void)
 	/* Always check for interrupts */
 	CHECK_FOR_INTERRUPTS();
 
-	if (!VacuumCostActive || InterruptPending)
+	if (InterruptPending ||
+		(!VacuumCostActive && !ConfigReloadPending))
+		return;
+
+	/*
+	 * Autovacuum workers should reload the configuration file if requested.
+	 * This allows changes to [autovacuum_]vacuum_cost_limit and
+	 * [autovacuum_]vacuum_cost_delay to take effect while a table is being
+	 * vacuumed or analyzed.
+	 */
+	if (ConfigReloadPending && IsAutoVacuumWorkerProcess())
+	{
+		ConfigReloadPending = false;
+		ProcessConfigFile(PGC_SIGHUP);
+		VacuumUpdateCosts();
+	}
+
+	/*
+	 * If we disabled cost-based delays after reloading the config file,
+	 * return.
+	 */
+	if (!VacuumCostActive)
 		return;
 
 	/*
@@ -2229,14 +2377,14 @@ vacuum_delay_point(void)
 	 */
 	if (VacuumSharedCostBalance != NULL)
 		msec = compute_parallel_delay();
-	else if (VacuumCostBalance >= VacuumCostLimit)
-		msec = VacuumCostDelay * VacuumCostBalance / VacuumCostLimit;
+	else if (VacuumCostBalance >= vacuum_cost_limit)
+		msec = vacuum_cost_delay * VacuumCostBalance / vacuum_cost_limit;
 
 	/* Nap if appropriate */
 	if (msec > 0)
 	{
-		if (msec > VacuumCostDelay * 4)
-			msec = VacuumCostDelay * 4;
+		if (msec > vacuum_cost_delay * 4)
+			msec = vacuum_cost_delay * 4;
 
 		pgstat_report_wait_start(WAIT_EVENT_VACUUM_DELAY);
 		pg_usleep(msec * 1000);
@@ -2253,8 +2401,15 @@ vacuum_delay_point(void)
 
 		VacuumCostBalance = 0;
 
-		/* update balance values for workers */
-		AutoVacuumUpdateDelay();
+		/*
+		 * Balance and update limit values for autovacuum workers. We must do
+		 * this periodically, as the number of workers across which we are
+		 * balancing the limit may have changed.
+		 *
+		 * TODO: There may be better criteria for determining when to do this
+		 * besides "check after napping".
+		 */
+		AutoVacuumUpdateCostLimit();
 
 		/* Might have gotten an interrupt while sleeping */
 		CHECK_FOR_INTERRUPTS();
@@ -2304,11 +2459,11 @@ compute_parallel_delay(void)
 	/* Compute the total local balance for the current worker */
 	VacuumCostBalanceLocal += VacuumCostBalance;
 
-	if ((shared_balance >= VacuumCostLimit) &&
-		(VacuumCostBalanceLocal > 0.5 * ((double) VacuumCostLimit / nworkers)))
+	if ((shared_balance >= vacuum_cost_limit) &&
+		(VacuumCostBalanceLocal > 0.5 * ((double) vacuum_cost_limit / nworkers)))
 	{
 		/* Compute sleep time based on the local cost balance */
-		msec = VacuumCostDelay * VacuumCostBalanceLocal / VacuumCostLimit;
+		msec = vacuum_cost_delay * VacuumCostBalanceLocal / vacuum_cost_limit;
 		pg_atomic_sub_fetch_u32(VacuumSharedCostBalance, VacuumCostBalanceLocal);
 		VacuumCostBalanceLocal = 0;
 	}
