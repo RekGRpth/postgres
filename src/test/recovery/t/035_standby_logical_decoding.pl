@@ -596,8 +596,8 @@ check_for_invalidation('wal_level_', $logstart, 'due to wal_level');
 check_slots_conflicting_status(1);
 
 $handle = make_slot_active($node_standby, 'wal_level_', 0, \$stdout, \$stderr);
-# We are not able to read from the slot as it requires wal_level at least logical on the primary server
-check_pg_recvlogical_stderr($handle, "logical decoding on a standby requires wal_level to be at least logical on the primary");
+# We are not able to read from the slot as it requires wal_level >= logical on the primary server
+check_pg_recvlogical_stderr($handle, "logical decoding on standby requires wal_level >= logical on the primary");
 
 # Restore primary wal_level
 $node_primary->append_conf('postgresql.conf',q[
@@ -653,8 +653,14 @@ $node_standby->reload;
 $node_primary->psql('postgres', q[CREATE DATABASE testdb]);
 $node_primary->safe_psql('testdb', qq[CREATE TABLE decoding_test(x integer, y text);]);
 
+# Wait for the standby to catchup before creating the slots
+$node_primary->wait_for_replay_catchup($node_standby);
+
 # create the logical slots
 create_logical_slots($node_standby, 'promotion_');
+
+# Wait for the cascading standby to catchup before creating the slots
+$node_standby->wait_for_replay_catchup($node_cascading_standby, $node_primary);
 
 # create the logical slots on the cascading standby too
 create_logical_slots($node_cascading_standby, 'promotion_');
