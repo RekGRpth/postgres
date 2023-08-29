@@ -648,7 +648,7 @@ static void refuseDupeIndexAttach(Relation parentIdx, Relation partIdx,
 static void verifyPartitionIndexNotNull(IndexInfo *iinfo, Relation partIdx);
 static List *GetParentedForeignKeyRefs(Relation partition);
 static void ATDetachCheckNoForeignKeyRefs(Relation partition);
-static char GetAttributeCompression(Oid atttypid, char *compression);
+static char GetAttributeCompression(Oid atttypid, const char *compression);
 static char GetAttributeStorage(Oid atttypid, const char *storagemode);
 
 
@@ -942,16 +942,9 @@ DefineRelation(CreateStmt *stmt, char relkind, Oid ownerId,
 			attr->atthasdef = true;
 		}
 
-		if (colDef->identity)
-			attr->attidentity = colDef->identity;
-
-		if (colDef->generated)
-			attr->attgenerated = colDef->generated;
-
-		if (colDef->compression)
-			attr->attcompression = GetAttributeCompression(attr->atttypid,
-														   colDef->compression);
-
+		attr->attidentity = colDef->identity;
+		attr->attgenerated = colDef->generated;
+		attr->attcompression = GetAttributeCompression(attr->atttypid, colDef->compression);
 		if (colDef->storage_name)
 			attr->attstorage = GetAttributeStorage(attr->atttypid, colDef->storage_name);
 	}
@@ -2755,10 +2748,8 @@ MergeAttributes(List *schema, List *supers, char relpersistence,
 				/*
 				 * No, create a new inherited column
 				 */
-				def = makeNode(ColumnDef);
-				def->colname = pstrdup(attributeName);
-				def->typeName = makeTypeNameFromOid(attribute->atttypid,
-													attribute->atttypmod);
+				def = makeColumnDef(attributeName, attribute->atttypid,
+									attribute->atttypmod, attribute->attcollation);
 				def->inhcount = 1;
 				def->is_local = false;
 				/* mark attnotnull if parent has it and it's not NO INHERIT */
@@ -2766,20 +2757,11 @@ MergeAttributes(List *schema, List *supers, char relpersistence,
 					bms_is_member(parent_attno - FirstLowInvalidHeapAttributeNumber,
 								  pkattrs))
 					def->is_not_null = true;
-				def->is_from_type = false;
 				def->storage = attribute->attstorage;
-				def->raw_default = NULL;
-				def->cooked_default = NULL;
 				def->generated = attribute->attgenerated;
-				def->collClause = NULL;
-				def->collOid = attribute->attcollation;
-				def->constraints = NIL;
-				def->location = -1;
 				if (CompressionMethodIsValid(attribute->attcompression))
 					def->compression =
 						pstrdup(GetCompressionMethodName(attribute->attcompression));
-				else
-					def->compression = NULL;
 				inhSchema = lappend(inhSchema, def);
 				newattmap->attnums[parent_attno - 1] = ++child_attno;
 
@@ -20094,7 +20076,7 @@ ATDetachCheckNoForeignKeyRefs(Relation partition)
  * resolve column compression specification to compression method.
  */
 static char
-GetAttributeCompression(Oid atttypid, char *compression)
+GetAttributeCompression(Oid atttypid, const char *compression)
 {
 	char		cmethod;
 
