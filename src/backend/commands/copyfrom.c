@@ -1485,6 +1485,12 @@ BeginCopyFrom(ParseState *pstate,
 		cstate->need_transcoding = true;
 		cstate->conversion_proc = FindDefaultConversionProc(cstate->file_encoding,
 															GetDatabaseEncoding());
+		if (!OidIsValid(cstate->conversion_proc))
+			ereport(ERROR,
+					(errcode(ERRCODE_UNDEFINED_FUNCTION),
+					 errmsg("default conversion function for encoding \"%s\" to \"%s\" does not exist",
+							pg_encoding_to_char(cstate->file_encoding),
+							pg_encoding_to_char(GetDatabaseEncoding()))));
 	}
 
 	cstate->copy_src = COPY_FILE;	/* default */
@@ -1571,7 +1577,14 @@ BeginCopyFrom(ParseState *pstate,
 		/* Get default info if available */
 		defexprs[attnum - 1] = NULL;
 
-		if (!att->attgenerated)
+		/*
+		 * We only need the default values for columns that do not appear in
+		 * the column list, unless the DEFAULT option was given. We never need
+		 * default values for generated columns.
+		 */
+		if ((cstate->opts.default_print != NULL ||
+			 !list_member_int(cstate->attnumlist, attnum)) &&
+			!att->attgenerated)
 		{
 			Expr	   *defexpr = (Expr *) build_column_default(cstate->rel,
 																attnum);
