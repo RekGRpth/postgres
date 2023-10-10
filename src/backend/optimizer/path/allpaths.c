@@ -1350,14 +1350,17 @@ add_paths_to_append_rel(PlannerInfo *root, RelOptInfo *rel,
 
 		/*
 		 * When the planner is considering cheap startup plans, we'll also
-		 * collect all the cheapest_startup_paths and build an AppendPath
-		 * containing those as subpaths.
+		 * collect all the cheapest_startup_paths (if set) and build an
+		 * AppendPath containing those as subpaths.
 		 */
-		if (rel->consider_startup && childrel->pathlist != NIL &&
-			childrel->cheapest_startup_path->param_info == NULL)
+		if (rel->consider_startup && childrel->cheapest_startup_path != NULL)
+		{
+			/* cheapest_startup_path must not be a parameterized path. */
+			Assert(childrel->cheapest_startup_path->param_info == NULL);
 			accumulate_append_subpath(childrel->cheapest_startup_path,
 									  &startup_subpaths,
 									  NULL);
+		}
 		else
 			startup_subpaths_valid = false;
 
@@ -2187,28 +2190,6 @@ set_dummy_rel_pathlist(RelOptInfo *rel)
 	set_cheapest(rel);
 }
 
-/* quick-and-dirty test to see if any joining is needed */
-static bool
-has_multiple_baserels(PlannerInfo *root)
-{
-	int			num_base_rels = 0;
-	Index		rti;
-
-	for (rti = 1; rti < root->simple_rel_array_size; rti++)
-	{
-		RelOptInfo *brel = root->simple_rel_array[rti];
-
-		if (brel == NULL)
-			continue;
-
-		/* ignore RTEs that are "other rels" */
-		if (brel->reloptkind == RELOPT_BASEREL)
-			if (++num_base_rels > 1)
-				return true;
-	}
-	return false;
-}
-
 /*
  * find_window_run_conditions
  *		Determine if 'wfunc' is really a WindowFunc and call its prosupport
@@ -2658,7 +2639,7 @@ set_subquery_pathlist(PlannerInfo *root, RelOptInfo *rel,
 		root->hasHavingQual ||
 		parse->distinctClause ||
 		parse->sortClause ||
-		has_multiple_baserels(root))
+		bms_membership(root->all_baserels) == BMS_MULTIPLE)
 		tuple_fraction = 0.0;	/* default case */
 	else
 		tuple_fraction = root->tuple_fraction;
