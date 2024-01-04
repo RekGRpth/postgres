@@ -6,7 +6,7 @@
  * gram.y
  *	  POSTGRESQL BISON rules/actions
  *
- * Portions Copyright (c) 1996-2023, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2024, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -2415,6 +2415,16 @@ alter_table_cmd:
 
 					n->subtype = AT_SetNotNull;
 					n->name = $3;
+					$$ = (Node *) n;
+				}
+			/* ALTER TABLE <name> ALTER [COLUMN] <colname> SET EXPRESSION AS <expr> */
+			| ALTER opt_column ColId SET EXPRESSION AS '(' a_expr ')'
+				{
+					AlterTableCmd *n = makeNode(AlterTableCmd);
+
+					n->subtype = AT_SetExpression;
+					n->name = $3;
+					n->def = $8;
 					$$ = (Node *) n;
 				}
 			/* ALTER TABLE <name> ALTER [COLUMN] <colname> DROP EXPRESSION */
