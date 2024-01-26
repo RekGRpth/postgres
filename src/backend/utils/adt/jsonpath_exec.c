@@ -1540,11 +1540,9 @@ executeItemOptUnwrapTarget(JsonPathExecContext *cxt, JsonPathItem *jsp,
 						break;
 				}
 
-				res = jperOk;
-
 				jb = &jbv;
 				Assert(tmp != NULL);	/* We must have set tmp above */
-				jb->val.string.val = (jb->type == jbvString) ? tmp : pstrdup(tmp);
+				jb->val.string.val = tmp;
 				jb->val.string.len = strlen(jb->val.string.val);
 				jb->type = jbvString;
 
@@ -2298,20 +2296,14 @@ executeDateTimeMethod(JsonPathExecContext *cxt, JsonPathItem *jsp,
 		static const char *fmt_str[] =
 		{
 			"yyyy-mm-dd",		/* date */
-			"HH24:MI:SS.USTZH:TZM", /* timetz */
-			"HH24:MI:SS.USTZH",
-			"HH24:MI:SSTZH:TZM",
-			"HH24:MI:SSTZH",
+			"HH24:MI:SS.USTZ",	/* timetz */
+			"HH24:MI:SSTZ",
 			"HH24:MI:SS.US",	/* time without tz */
 			"HH24:MI:SS",
-			"yyyy-mm-dd HH24:MI:SS.USTZH:TZM",	/* timestamptz */
-			"yyyy-mm-dd HH24:MI:SS.USTZH",
-			"yyyy-mm-dd HH24:MI:SSTZH:TZM",
-			"yyyy-mm-dd HH24:MI:SSTZH",
-			"yyyy-mm-dd\"T\"HH24:MI:SS.USTZH:TZM",
-			"yyyy-mm-dd\"T\"HH24:MI:SS.USTZH",
-			"yyyy-mm-dd\"T\"HH24:MI:SSTZH:TZM",
-			"yyyy-mm-dd\"T\"HH24:MI:SSTZH",
+			"yyyy-mm-dd HH24:MI:SS.USTZ",	/* timestamptz */
+			"yyyy-mm-dd HH24:MI:SSTZ",
+			"yyyy-mm-dd\"T\"HH24:MI:SS.USTZ",
+			"yyyy-mm-dd\"T\"HH24:MI:SSTZ",
 			"yyyy-mm-dd HH24:MI:SS.US", /* timestamp without tz */
 			"yyyy-mm-dd HH24:MI:SS",
 			"yyyy-mm-dd\"T\"HH24:MI:SS.US",
