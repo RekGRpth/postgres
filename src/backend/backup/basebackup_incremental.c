@@ -20,15 +20,15 @@
 #include "postgres.h"
 
 #include "access/timeline.h"
-#include "access/xlog.h"
-#include "access/xlogrecovery.h"
 #include "backup/basebackup_incremental.h"
 #include "backup/walsummary.h"
 #include "common/blkreftable.h"
 #include "common/parse_manifest.h"
 #include "common/hashfn.h"
 #include "common/int.h"
+#include "datatype/timestamp.h"
 #include "postmaster/walsummarizer.h"
+#include "utils/timestamp.h"
 
 #define	BLOCKS_PER_READ			512
 
@@ -777,9 +777,25 @@ GetFileBackupMethod(IncrementalBackupInfo *ib, const char *path,
 			return BACK_UP_FILE_FULLY;
 	}
 
-	/* Look up the block reference table entry. */
+	/*
+	 * Look up the special block reference table entry for the database as
+	 * a whole.
+	 */
 	rlocator.spcOid = spcoid;
 	rlocator.dbOid = dboid;
+	rlocator.relNumber = 0;
+	if (BlockRefTableGetEntry(ib->brtab, &rlocator, MAIN_FORKNUM,
+							  &limit_block) != NULL)
+	{
+		/*
+		 * According to the WAL summary, this database OID/tablespace OID
+		 * pairing has been created since the previous backup. So, everything
+		 * in it must be backed up fully.
+		 */
+		return BACK_UP_FILE_FULLY;
+	}
+
+	/* Look up the block reference table entry for this relfilenode. */
 	rlocator.relNumber = relfilenumber;
 	brtentry = BlockRefTableGetEntry(ib->brtab, &rlocator, forknum,
 									 &limit_block);
