@@ -1919,11 +1919,6 @@ include_dir 'conf.d'
         too high.  It may be useful to control for this by separately
         setting <xref linkend="guc-autovacuum-work-mem"/>.
        </para>
-       <para>
-        Note that for the collection of dead tuple identifiers,
-        <command>VACUUM</command> is only able to utilize up to a maximum of
-        <literal>1GB</literal> of memory.
-       </para>
       </listitem>
      </varlistentry>
 
@@ -1945,13 +1940,6 @@ include_dir 'conf.d'
         This parameter can only be set in the
         <filename>postgresql.conf</filename> file or on the server command
         line.
-       </para>
-       <para>
-        For the collection of dead tuple identifiers, autovacuum is only able
-        to utilize up to a maximum of <literal>1GB</literal> of memory, so
-        setting <varname>autovacuum_work_mem</varname> to a value higher than
-        that has no effect on the number of dead tuples that autovacuum can
-        collect while scanning a table.
        </para>
       </listitem>
      </varlistentry>
@@ -2716,6 +2704,20 @@ include_dir 'conf.d'
          be overridden for tables in a particular tablespace by setting the
          tablespace parameter of the same name (see
          <xref linkend="sql-altertablespace"/>).
+        </para>
+       </listitem>
+      </varlistentry>
+
+      <varlistentry id="guc-io-combine-limit" xreflabel="io_combine_limit">
+       <term><varname>io_combine_limit</varname> (<type>integer</type>)
+       <indexterm>
+        <primary><varname>io_combine_limit</varname> configuration parameter</primary>
+       </indexterm>
+       </term>
+       <listitem>
+        <para>
+         Controls the largest I/O size in operations that combine I/O.
+         The default is 128kB.
         </para>
        </listitem>
       </varlistentry>
