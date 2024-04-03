@@ -66,6 +66,7 @@
 #include "catalog/catversion.h"
 #include "catalog/pg_control.h"
 #include "catalog/pg_database.h"
+#include "commands/waitlsn.h"
 #include "common/controldata_utils.h"
 #include "common/file_utils.h"
 #include "executor/instrument.h"
@@ -290,16 +291,15 @@ static bool doPageWrites;
  *
  * LogwrtRqst indicates a byte position that we need to write and/or fsync
  * the log up to (all records before that point must be written or fsynced).
- * LogwrtResult indicates the byte positions we have already written/fsynced.
- * These structs are identical but are declared separately to indicate their
- * slightly different functions.
+ * The positions already written/fsynced are maintained in logWriteResult
+ * and logFlushResult.
  *
- * To read XLogCtl->LogwrtResult, you must hold either info_lck or
- * WALWriteLock.  To update it, you need to hold both locks.  The point of
- * this arrangement is that the value can be examined by code that already
- * holds WALWriteLock without needing to grab info_lck as well.  In addition
- * to the shared variable, each backend has a private copy of LogwrtResult,
- * which is updated when convenient.
+ * To read XLogCtl->logWriteResult or ->logFlushResult, you must hold either
+ * info_lck or WALWriteLock.  To update them, you need to hold both locks.
+ * The point of this arrangement is that the value can be examined by code
+ * that already holds WALWriteLock without needing to grab info_lck as well.
+ * In addition to the shared variable, each backend has a private copy of
+ * both in LogwrtResult, which is updated when convenient.
  *
  * The request bookkeeping is simpler: there is a shared XLogCtl->LogwrtRqst
  * (protected by info_lck), but we don't need to cache any copies of it.
@@ -477,7 +477,8 @@ typedef struct XLogCtlData
 	 * Protected by info_lck and WALWriteLock (you must hold either lock to
 	 * read it, but both to update)
 	 */
-	XLogwrtResult LogwrtResult;
+	XLogRecPtr	logWriteResult; /* last byte + 1 written out */
+	XLogRecPtr	logFlushResult; /* last byte + 1 flushed */
 
 	/*
 	 * Latest initialized page in the cache (last byte position + 1).
@@ -612,6 +613,15 @@ static int	UsableBytesInSegment;
  * See discussion above.
  */
 static XLogwrtResult LogwrtResult = {0, 0};
+
+/*
+ * Update local copy of shared XLogCtl->log{Write,Flush}Result
+ */
+#define RefreshXLogWriteResult(_target) \
+	do { \
+		_target.Write = XLogCtl->logWriteResult; \
+		_target.Flush = XLogCtl->logFlushResult; \
+	} while (0)
 
 /*
  * openLogFile is -1 or a kernel FD for an open log file segment.
@@ -959,7 +969,7 @@ XLogInsertRecord(XLogRecData *rdata,
 		if (XLogCtl->LogwrtRqst.Write < EndPos)
 			XLogCtl->LogwrtRqst.Write = EndPos;
 		/* update local result copy while I have the chance */
-		LogwrtResult = XLogCtl->LogwrtResult;
+		RefreshXLogWriteResult(LogwrtResult);
 		SpinLockRelease(&XLogCtl->info_lck);
 	}
 
@@ -1349,7 +1359,9 @@ CopyXLogRecordToWAL(int write_len, bool isLogSwitch, XLogRecData *rdata,
 	}
 
 	if (CurrPos != EndPos)
-		elog(PANIC, "space reserved for WAL record does not match what was written");
+		ereport(PANIC,
+				errcode(ERRCODE_DATA_CORRUPTED),
+				errmsg_internal("space reserved for WAL record does not match what was written"));
 }
 
 /*
@@ -1981,7 +1993,7 @@ AdvanceXLInsertBuffer(XLogRecPtr upto, TimeLineID tli, bool opportunistic)
 			SpinLockAcquire(&XLogCtl->info_lck);
 			if (XLogCtl->LogwrtRqst.Write < OldPageRqstPtr)
 				XLogCtl->LogwrtRqst.Write = OldPageRqstPtr;
-			LogwrtResult = XLogCtl->LogwrtResult;
+			RefreshXLogWriteResult(LogwrtResult);
 			SpinLockRelease(&XLogCtl->info_lck);
 
 			/*
@@ -2002,7 +2014,7 @@ AdvanceXLInsertBuffer(XLogRecPtr upto, TimeLineID tli, bool opportunistic)
 
 				LWLockAcquire(WALWriteLock, LW_EXCLUSIVE);
 
-				LogwrtResult = XLogCtl->LogwrtResult;
+				RefreshXLogWriteResult(LogwrtResult);
 				if (LogwrtResult.Write >= OldPageRqstPtr)
 				{
 					/* OK, someone wrote it already */
@@ -2286,7 +2298,7 @@ XLogWrite(XLogwrtRqst WriteRqst, TimeLineID tli, bool flexible)
 	/*
 	 * Update local LogwrtResult (caller probably did this already, but...)
 	 */
-	LogwrtResult = XLogCtl->LogwrtResult;
+	RefreshXLogWriteResult(LogwrtResult);
 
 	/*
 	 * Since successive pages in the xlog cache are consecutively allocated,
@@ -2546,7 +2558,8 @@ XLogWrite(XLogwrtRqst WriteRqst, TimeLineID tli, bool flexible)
 	 */
 	{
 		SpinLockAcquire(&XLogCtl->info_lck);
-		XLogCtl->LogwrtResult = LogwrtResult;
+		XLogCtl->logWriteResult = LogwrtResult.Write;
+		XLogCtl->logFlushResult = LogwrtResult.Flush;
 		if (XLogCtl->LogwrtRqst.Write < LogwrtResult.Write)
 			XLogCtl->LogwrtRqst.Write = LogwrtResult.Write;
 		if (XLogCtl->LogwrtRqst.Flush < LogwrtResult.Flush)
@@ -2569,7 +2582,7 @@ XLogSetAsyncXactLSN(XLogRecPtr asyncXactLSN)
 	XLogRecPtr	prevAsyncXactLSN;
 
 	SpinLockAcquire(&XLogCtl->info_lck);
-	LogwrtResult = XLogCtl->LogwrtResult;
+	RefreshXLogWriteResult(LogwrtResult);
 	sleeping = XLogCtl->WalWriterSleeping;
 	prevAsyncXactLSN = XLogCtl->asyncXactLSN;
 	if (XLogCtl->asyncXactLSN < asyncXactLSN)
@@ -2781,7 +2794,7 @@ XLogFlush(XLogRecPtr record)
 		SpinLockAcquire(&XLogCtl->info_lck);
 		if (WriteRqstPtr < XLogCtl->LogwrtRqst.Write)
 			WriteRqstPtr = XLogCtl->LogwrtRqst.Write;
-		LogwrtResult = XLogCtl->LogwrtResult;
+		RefreshXLogWriteResult(LogwrtResult);
 		SpinLockRelease(&XLogCtl->info_lck);
 
 		/* done already? */
@@ -2812,7 +2825,7 @@ XLogFlush(XLogRecPtr record)
 		}
 
 		/* Got the lock; recheck whether request is satisfied */
-		LogwrtResult = XLogCtl->LogwrtResult;
+		RefreshXLogWriteResult(LogwrtResult);
 		if (record <= LogwrtResult.Flush)
 		{
 			LWLockRelease(WALWriteLock);
@@ -2936,7 +2949,7 @@ XLogBackgroundFlush(void)
 
 	/* read LogwrtResult and update local state */
 	SpinLockAcquire(&XLogCtl->info_lck);
-	LogwrtResult = XLogCtl->LogwrtResult;
+	RefreshXLogWriteResult(LogwrtResult);
 	WriteRqst = XLogCtl->LogwrtRqst;
 	SpinLockRelease(&XLogCtl->info_lck);
 
@@ -3024,7 +3037,7 @@ XLogBackgroundFlush(void)
 	/* now wait for any in-progress insertions to finish and get write lock */
 	WaitXLogInsertionsToFinish(WriteRqst.Write);
 	LWLockAcquire(WALWriteLock, LW_EXCLUSIVE);
-	LogwrtResult = XLogCtl->LogwrtResult;
+	RefreshXLogWriteResult(LogwrtResult);
 	if (WriteRqst.Write > LogwrtResult.Write ||
 		WriteRqst.Flush > LogwrtResult.Flush)
 	{
@@ -3113,7 +3126,7 @@ XLogNeedsFlush(XLogRecPtr record)
 
 	/* read LogwrtResult and update local state */
 	SpinLockAcquire(&XLogCtl->info_lck);
-	LogwrtResult = XLogCtl->LogwrtResult;
+	RefreshXLogWriteResult(LogwrtResult);
 	SpinLockRelease(&XLogCtl->info_lck);
 
 	/* check again */
@@ -4035,7 +4048,8 @@ ValidateXLOGDirectoryStructure(void)
 	if (stat(XLOGDIR, &stat_buf) != 0 ||
 		!S_ISDIR(stat_buf.st_mode))
 		ereport(FATAL,
-				(errmsg("required WAL directory \"%s\" does not exist",
+				(errcode_for_file_access(),
+				 errmsg("required WAL directory \"%s\" does not exist",
 						XLOGDIR)));
 
 	/* Check for archive_status */
@@ -4045,7 +4059,8 @@ ValidateXLOGDirectoryStructure(void)
 		/* Check for weird cases where it exists but isn't a directory */
 		if (!S_ISDIR(stat_buf.st_mode))
 			ereport(FATAL,
-					(errmsg("required WAL directory \"%s\" does not exist",
+					(errcode_for_file_access(),
+					 errmsg("required WAL directory \"%s\" does not exist",
 							path)));
 	}
 	else
@@ -4054,7 +4069,8 @@ ValidateXLOGDirectoryStructure(void)
 				(errmsg("creating missing WAL directory \"%s\"", path)));
 		if (MakePGDirectory(path) < 0)
 			ereport(FATAL,
-					(errmsg("could not create missing directory \"%s\": %m",
+					(errcode_for_file_access(),
+					 errmsg("could not create missing directory \"%s\": %m",
 							path)));
 	}
 
@@ -4291,7 +4307,8 @@ ReadControlFile(void)
 
 	if (ControlFile->pg_control_version != PG_CONTROL_VERSION && ControlFile->pg_control_version % 65536 == 0 && ControlFile->pg_control_version / 65536 != 0)
 		ereport(FATAL,
-				(errmsg("database files are incompatible with server"),
+				(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+				 errmsg("database files are incompatible with server"),
 				 errdetail("The database cluster was initialized with PG_CONTROL_VERSION %d (0x%08x),"
 						   " but the server was compiled with PG_CONTROL_VERSION %d (0x%08x).",
 						   ControlFile->pg_control_version, ControlFile->pg_control_version,
@@ -4300,7 +4317,8 @@ ReadControlFile(void)
 
 	if (ControlFile->pg_control_version != PG_CONTROL_VERSION)
 		ereport(FATAL,
-				(errmsg("database files are incompatible with server"),
+				(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+				 errmsg("database files are incompatible with server"),
 				 errdetail("The database cluster was initialized with PG_CONTROL_VERSION %d,"
 						   " but the server was compiled with PG_CONTROL_VERSION %d.",
 						   ControlFile->pg_control_version, PG_CONTROL_VERSION),
@@ -4315,7 +4333,8 @@ ReadControlFile(void)
 
 	if (!EQ_CRC32C(crc, ControlFile->crc))
 		ereport(FATAL,
-				(errmsg("incorrect checksum in control file")));
+				(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+				 errmsg("incorrect checksum in control file")));
 
 	/*
 	 * Do compatibility checking immediately.  If the database isn't
@@ -4324,68 +4343,78 @@ ReadControlFile(void)
 	 */
 	if (ControlFile->catalog_version_no != CATALOG_VERSION_NO)
 		ereport(FATAL,
-				(errmsg("database files are incompatible with server"),
+				(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+				 errmsg("database files are incompatible with server"),
 				 errdetail("The database cluster was initialized with CATALOG_VERSION_NO %d,"
 						   " but the server was compiled with CATALOG_VERSION_NO %d.",
 						   ControlFile->catalog_version_no, CATALOG_VERSION_NO),
 				 errhint("It looks like you need to initdb.")));
 	if (ControlFile->maxAlign != MAXIMUM_ALIGNOF)
 		ereport(FATAL,
-				(errmsg("database files are incompatible with server"),
+				(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+				 errmsg("database files are incompatible with server"),
 				 errdetail("The database cluster was initialized with MAXALIGN %d,"
 						   " but the server was compiled with MAXALIGN %d.",
 						   ControlFile->maxAlign, MAXIMUM_ALIGNOF),
 				 errhint("It looks like you need to initdb.")));
 	if (ControlFile->floatFormat != FLOATFORMAT_VALUE)
 		ereport(FATAL,
-				(errmsg("database files are incompatible with server"),
+				(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+				 errmsg("database files are incompatible with server"),
 				 errdetail("The database cluster appears to use a different floating-point number format than the server executable."),
 				 errhint("It looks like you need to initdb.")));
 	if (ControlFile->blcksz != BLCKSZ)
 		ereport(FATAL,
-				(errmsg("database files are incompatible with server"),
+				(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+				 errmsg("database files are incompatible with server"),
 				 errdetail("The database cluster was initialized with BLCKSZ %d,"
 						   " but the server was compiled with BLCKSZ %d.",
 						   ControlFile->blcksz, BLCKSZ),
 				 errhint("It looks like you need to recompile or initdb.")));
 	if (ControlFile->relseg_size != RELSEG_SIZE)
 		ereport(FATAL,
-				(errmsg("database files are incompatible with server"),
+				(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+				 errmsg("database files are incompatible with server"),
 				 errdetail("The database cluster was initialized with RELSEG_SIZE %d,"
 						   " but the server was compiled with RELSEG_SIZE %d.",
 						   ControlFile->relseg_size, RELSEG_SIZE),
 				 errhint("It looks like you need to recompile or initdb.")));
 	if (ControlFile->xlog_blcksz != XLOG_BLCKSZ)
 		ereport(FATAL,
-				(errmsg("database files are incompatible with server"),
+				(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+				 errmsg("database files are incompatible with server"),
 				 errdetail("The database cluster was initialized with XLOG_BLCKSZ %d,"
 						   " but the server was compiled with XLOG_BLCKSZ %d.",
 						   ControlFile->xlog_blcksz, XLOG_BLCKSZ),
 				 errhint("It looks like you need to recompile or initdb.")));
 	if (ControlFile->nameDataLen != NAMEDATALEN)
 		ereport(FATAL,
-				(errmsg("database files are incompatible with server"),
+				(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+				 errmsg("database files are incompatible with server"),
 				 errdetail("The database cluster was initialized with NAMEDATALEN %d,"
 						   " but the server was compiled with NAMEDATALEN %d.",
 						   ControlFile->nameDataLen, NAMEDATALEN),
 				 errhint("It looks like you need to recompile or initdb.")));
 	if (ControlFile->indexMaxKeys != INDEX_MAX_KEYS)
 		ereport(FATAL,
-				(errmsg("database files are incompatible with server"),
+				(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+				 errmsg("database files are incompatible with server"),
 				 errdetail("The database cluster was initialized with INDEX_MAX_KEYS %d,"
 						   " but the server was compiled with INDEX_MAX_KEYS %d.",
 						   ControlFile->indexMaxKeys, INDEX_MAX_KEYS),
 				 errhint("It looks like you need to recompile or initdb.")));
 	if (ControlFile->toast_max_chunk_size != TOAST_MAX_CHUNK_SIZE)
 		ereport(FATAL,
-				(errmsg("database files are incompatible with server"),
+				(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+				 errmsg("database files are incompatible with server"),
 				 errdetail("The database cluster was initialized with TOAST_MAX_CHUNK_SIZE %d,"
 						   " but the server was compiled with TOAST_MAX_CHUNK_SIZE %d.",
 						   ControlFile->toast_max_chunk_size, (int) TOAST_MAX_CHUNK_SIZE),
 				 errhint("It looks like you need to recompile or initdb.")));
 	if (ControlFile->loblksize != LOBLKSIZE)
 		ereport(FATAL,
-				(errmsg("database files are incompatible with server"),
+				(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+				 errmsg("database files are incompatible with server"),
 				 errdetail("The database cluster was initialized with LOBLKSIZE %d,"
 						   " but the server was compiled with LOBLKSIZE %d.",
 						   ControlFile->loblksize, (int) LOBLKSIZE),
@@ -4394,14 +4423,16 @@ ReadControlFile(void)
 #ifdef USE_FLOAT8_BYVAL
 	if (ControlFile->float8ByVal != true)
 		ereport(FATAL,
-				(errmsg("database files are incompatible with server"),
+				(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+				 errmsg("database files are incompatible with server"),
 				 errdetail("The database cluster was initialized without USE_FLOAT8_BYVAL"
 						   " but the server was compiled with USE_FLOAT8_BYVAL."),
 				 errhint("It looks like you need to recompile or initdb.")));
 #else
 	if (ControlFile->float8ByVal != false)
 		ereport(FATAL,
-				(errmsg("database files are incompatible with server"),
+				(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+				 errmsg("database files are incompatible with server"),
 				 errdetail("The database cluster was initialized with USE_FLOAT8_BYVAL"
 						   " but the server was compiled without USE_FLOAT8_BYVAL."),
 				 errhint("It looks like you need to recompile or initdb.")));
@@ -5270,7 +5301,8 @@ CheckRequiredParameterValues(void)
 	if (ArchiveRecoveryRequested && ControlFile->wal_level == WAL_LEVEL_MINIMAL)
 	{
 		ereport(FATAL,
-				(errmsg("WAL was generated with wal_level=minimal, cannot continue recovering"),
+				(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+				 errmsg("WAL was generated with wal_level=minimal, cannot continue recovering"),
 				 errdetail("This happens if you temporarily set wal_level=minimal on the server."),
 				 errhint("Use a backup taken after setting wal_level to higher than minimal.")));
 	}
@@ -5336,7 +5368,8 @@ StartupXLOG(void)
 	 */
 	if (!XRecOffIsValid(ControlFile->checkPoint))
 		ereport(FATAL,
-				(errmsg("control file contains invalid checkpoint location")));
+				(errcode(ERRCODE_DATA_CORRUPTED),
+				 errmsg("control file contains invalid checkpoint location")));
 
 	switch (ControlFile->state)
 	{
@@ -5387,7 +5420,8 @@ StartupXLOG(void)
 
 		default:
 			ereport(FATAL,
-					(errmsg("control file contains invalid database cluster state")));
+					(errcode(ERRCODE_DATA_CORRUPTED),
+					 errmsg("control file contains invalid database cluster state")));
 	}
 
 	/* This is just to allow attaching to startup process with a debugger */
@@ -5773,11 +5807,13 @@ StartupXLOG(void)
 		{
 			if (!XLogRecPtrIsInvalid(ControlFile->backupStartPoint) || ControlFile->backupEndRequired)
 				ereport(FATAL,
-						(errmsg("WAL ends before end of online backup"),
+						(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+						 errmsg("WAL ends before end of online backup"),
 						 errhint("All WAL generated while online backup was taken must be available at recovery.")));
 			else
 				ereport(FATAL,
-						(errmsg("WAL ends before consistent recovery point")));
+						(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+						 errmsg("WAL ends before consistent recovery point")));
 		}
 	}
 
@@ -5927,7 +5963,8 @@ StartupXLOG(void)
 
 	LogwrtResult.Write = LogwrtResult.Flush = EndOfLog;
 
-	XLogCtl->LogwrtResult = LogwrtResult;
+	XLogCtl->logWriteResult = LogwrtResult.Write;
+	XLogCtl->logFlushResult = LogwrtResult.Flush;
 
 	XLogCtl->LogwrtRqst.Write = EndOfLog;
 	XLogCtl->LogwrtRqst.Flush = EndOfLog;
@@ -6039,6 +6076,12 @@ StartupXLOG(void)
 
 	UpdateControlFile();
 	LWLockRelease(ControlFileLock);
+
+	/*
+	 * Wake up all waiters for replay LSN.  They need to report an error that
+	 * recovery was ended before achieving the target LSN.
+	 */
+	WaitLSNSetLatches(InvalidXLogRecPtr);
 
 	/*
 	 * Shutdown the recovery environment.  This must occur after
@@ -6368,7 +6411,7 @@ GetFlushRecPtr(TimeLineID *insertTLI)
 	Assert(XLogCtl->SharedRecoveryState == RECOVERY_STATE_DONE);
 
 	SpinLockAcquire(&XLogCtl->info_lck);
-	LogwrtResult = XLogCtl->LogwrtResult;
+	RefreshXLogWriteResult(LogwrtResult);
 	SpinLockRelease(&XLogCtl->info_lck);
 
 	/*
@@ -8558,7 +8601,9 @@ issue_xlog_fsync(int fd, XLogSegNo segno, TimeLineID tli)
 			Assert(false);
 			break;
 		default:
-			elog(PANIC, "unrecognized wal_sync_method: %d", wal_sync_method);
+			ereport(PANIC,
+					errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+					errmsg_internal("unrecognized wal_sync_method: %d", wal_sync_method));
 			break;
 	}
 
@@ -9282,7 +9327,7 @@ XLogRecPtr
 GetXLogWriteRecPtr(void)
 {
 	SpinLockAcquire(&XLogCtl->info_lck);
-	LogwrtResult = XLogCtl->LogwrtResult;
+	RefreshXLogWriteResult(LogwrtResult);
 	SpinLockRelease(&XLogCtl->info_lck);
 
 	return LogwrtResult.Write;
