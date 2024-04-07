@@ -337,6 +337,8 @@ BulkInsertState
 BulkInsertStateData
 BulkWriteBuffer
 BulkWriteState
+BumpBlock
+BumpContext
 CACHESIGN
 CAC_state
 CCFastEqualFN
@@ -2631,6 +2633,7 @@ SimpleStats
 SimpleStringList
 SimpleStringListCell
 SingleBoundSortItem
+SinglePartitionSpec
 Size
 SkipPages
 SlabBlock
@@ -2694,6 +2697,7 @@ SpecialJoinInfo
 SpinDelayStatus
 SplitInterval
 SplitLR
+SplitPartitionContext
 SplitPageLayout
 SplitPoint
 SplitTextOutputData
