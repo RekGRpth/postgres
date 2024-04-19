@@ -1791,7 +1791,7 @@ typedef struct JsonExpr
 	/* Format of the above expression needed by ruleutils.c */
 	JsonFormat *format;
 
-	/* jsopath-valued expression containing the query pattern */
+	/* jsonpath-valued expression containing the query pattern */
 	Node	   *path_spec;
 
 	/* Expected type/format of the output. */
@@ -1969,6 +1969,8 @@ typedef enum MergeMatchKind
 	MERGE_WHEN_NOT_MATCHED_BY_SOURCE,
 	MERGE_WHEN_NOT_MATCHED_BY_TARGET
 } MergeMatchKind;
+
+#define NUM_MERGE_MATCH_KINDS (MERGE_WHEN_NOT_MATCHED_BY_TARGET + 1)
 
 typedef struct MergeAction
 {

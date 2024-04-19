@@ -990,7 +990,7 @@ process_directory_recursively(Oid tsoid,
 
 			/* Reconstruction logic will do the rest. */
 			reconstruct_from_incremental_file(ifullpath, ofullpath,
-											  relative_path,
+											  manifest_prefix,
 											  de->d_name + INCREMENTAL_PREFIX_LENGTH,
 											  n_prior_backups,
 											  prior_backup_dirs,
@@ -1177,7 +1177,7 @@ remember_to_cleanup_directory(char *target_path, bool rmtopdir)
 }
 
 /*
- * Empty out the list of directories scheduled for cleanup a exit.
+ * Empty out the list of directories scheduled for cleanup at exit.
  *
  * We want to remove the output directories only on a failure, so call this
  * function when we know that the operation has succeeded.
