@@ -7905,10 +7905,9 @@ ATExecSetNotNull(List **wqueue, Relation rel, char *conName, char *colName,
 		if (conForm->connoinherit && recurse)
 			ereport(ERROR,
 					errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-					errmsg("cannot change NO INHERIT status of NOT NULL constraint \"%s\" in relation \"%s\"",
+					errmsg("cannot change NO INHERIT status of NOT NULL constraint \"%s\" on relation \"%s\"",
 						   NameStr(conForm->conname),
 						   RelationGetRelationName(rel)));
-
 
 		/*
 		 * If we find an appropriate constraint, we're almost done, but just
@@ -18018,8 +18017,11 @@ AlterTableNamespaceInternal(Relation rel, Oid oldNspOid, Oid nspOid,
 
 	/* Fix the table's row type too, if it has one */
 	if (OidIsValid(rel->rd_rel->reltype))
-		AlterTypeNamespaceInternal(rel->rd_rel->reltype,
-								   nspOid, false, false, objsMoved);
+		AlterTypeNamespaceInternal(rel->rd_rel->reltype, nspOid,
+								   false,	/* isImplicitArray */
+								   false,	/* ignoreDependent */
+								   false,	/* errorOnTableType */
+								   objsMoved);
 
 	/* Fix other dependent stuff */
 	AlterIndexNamespaces(classRel, rel, oldNspOid, nspOid, objsMoved);
