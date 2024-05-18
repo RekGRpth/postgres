@@ -530,11 +530,12 @@ Author: Heikki Linnakangas <heikki.linnakangas@iki.fi>
 
 <listitem>
 <para>
-Allow vacuum to more efficiently store tuple references and remove its memory limit (Masahiko Sawada, John Naylor)
+Allow vacuum to more efficiently store tuple references (Masahiko Sawada, John Naylor)
 </para>
 
 <para>
-Specifically, maintenance_work_mem and autovacuum_work_mem can now be configured to use more than one gigabyte of memory.  WAL traffic caused by vacuum is also more compact.
+Additionally, vacuum is no longer silently limited to one gigabyte of memory when maintenance_work_mem and autovacuum_work_mem are higher. WAL traffic caused by
+vacuum is also more compact.
 </para>
 </listitem>
 
@@ -1677,7 +1678,7 @@ Author: Andrew Dunstan <andrew@dunslane.net>
 
 <listitem>
 <para>
-Add jsonpath methods to convert JSON values to different data types (Jeevan Chalke)
+Add jsonpath methods to convert JSON values to other JSON data types (Jeevan Chalke)
 </para>
 
 <para>
@@ -2447,6 +2448,17 @@ Author: David Rowley <drowley@postgresql.org>
 <listitem>
 <para>
 User-defined data type receive functions will no longer receive their data null-terminated (David Rowley)
+</para>
+</listitem>
+
+<!--
+Author: Andrew Dunstan <andrew@dunslane.net>
+2024-04-04 [3311ea86e] Introduce a non-recursive JSON parser
+-->
+
+<listitem>
+<para>
+Add incremental JSON parser for use with huge JSON documents (Andrew Dunstan)
 </para>
 </listitem>
 
