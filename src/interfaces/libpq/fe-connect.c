@@ -3519,7 +3519,7 @@ keep_going:						/* We will come back to here until there is
 						 * continue without SSL, we can proceed using this
 						 * connection.  Otherwise return with an error.
 						 */
-						ENCRYPTION_NEGOTIATION_FAILED("server does not support SSL, but SSL was required");
+						ENCRYPTION_NEGOTIATION_FAILED(libpq_gettext("server does not support SSL, but SSL was required"));
 					}
 					else if (SSLok == 'E')
 					{
@@ -3640,7 +3640,7 @@ keep_going:						/* We will come back to here until there is
 						 * continue without GSS, we can proceed using this
 						 * connection.  Otherwise return with an error.
 						 */
-						ENCRYPTION_NEGOTIATION_FAILED("server doesn't support GSSAPI encryption, but it was required");
+						ENCRYPTION_NEGOTIATION_FAILED(libpq_gettext("server doesn't support GSSAPI encryption, but it was required"));
 					}
 					else if (gss_ok != 'G')
 					{
@@ -4312,7 +4312,7 @@ init_allowed_encryption_methods(PGconn *conn)
 		if (conn->gssencmode[0] == 'r')
 		{
 			libpq_append_conn_error(conn,
-									"GSSAPI encryption required but it is not supported over a local socket)");
+									"GSSAPI encryption required but it is not supported over a local socket");
 			conn->allowed_enc_methods = 0;
 			conn->current_enc_method = ENC_ERROR;
 			return false;
