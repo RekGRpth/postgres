@@ -212,7 +212,7 @@ main(int argc, char *argv[])
 
 	if (optind >= argc)
 	{
-		pg_log_error("%s: no input directories specified", progname);
+		pg_log_error("no input directories specified");
 		pg_log_error_hint("Try \"%s --help\" for more information.", progname);
 		exit(1);
 	}
@@ -751,7 +751,7 @@ help(const char *progname)
 	printf(_("  -d, --debug               generate lots of debugging output\n"));
 	printf(_("  -n, --dry-run             do not actually do anything\n"));
 	printf(_("  -N, --no-sync             do not wait for changes to be written safely to disk\n"));
-	printf(_("  -o, --output              output directory\n"));
+	printf(_("  -o, --output=DIRECTORY    output directory\n"));
 	printf(_("  -T, --tablespace-mapping=OLDDIR=NEWDIR\n"
 			 "                            relocate tablespace in OLDDIR to NEWDIR\n"));
 	printf(_("      --clone               clone (reflink) instead of copying files\n"));
