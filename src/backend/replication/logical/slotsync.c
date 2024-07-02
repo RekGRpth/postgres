@@ -103,7 +103,7 @@ typedef struct SlotSyncCtxStruct
 	slock_t		mutex;
 } SlotSyncCtxStruct;
 
-SlotSyncCtxStruct *SlotSyncCtx = NULL;
+static SlotSyncCtxStruct *SlotSyncCtx = NULL;
 
 /* GUC variable */
 bool		sync_replication_slots = false;
@@ -1342,7 +1342,7 @@ ReplSlotSyncWorkerMain(char *startup_data, size_t startup_data_len)
 
 	init_ps_display(NULL);
 
-	SetProcessingMode(InitProcessing);
+	Assert(GetProcessingMode() == InitProcessing);
 
 	/*
 	 * Create a per-backend PGPROC struct in shared memory.  We must do this
