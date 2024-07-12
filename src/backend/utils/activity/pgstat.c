@@ -1360,6 +1360,9 @@ pgstat_write_statsfile(void)
 
 	pgstat_assert_is_up();
 
+	/* should be called only by the checkpointer or single user mode */
+	Assert(!IsUnderPostmaster || MyBackendType == B_CHECKPOINTER);
+
 	/* we're shutting down, so it's ok to just override this */
 	pgstat_fetch_consistency = PGSTAT_FETCH_CONSISTENCY_NONE;
 
@@ -1495,7 +1498,7 @@ read_chunk(FILE *fpin, void *ptr, size_t len)
 #define read_chunk_s(fpin, ptr) read_chunk(fpin, ptr, sizeof(*ptr))
 
 /*
- * Reads in existing statistics file into the shared stats hash.
+ * Reads in existing statistics file into memory.
  *
  * This function is called in the only process that is accessing the shared
  * stats so locking is not required.
