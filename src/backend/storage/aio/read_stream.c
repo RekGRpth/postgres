@@ -164,6 +164,23 @@ get_per_buffer_data(ReadStream *stream, int16 buffer_index)
 }
 
 /*
+ * General-use ReadStreamBlockNumberCB for block range scans.  Loops over the
+ * blocks [current_blocknum, last_exclusive).
+ */
+BlockNumber
+block_range_read_stream_cb(ReadStream *stream,
+						   void *callback_private_data,
+						   void *per_buffer_data)
+{
+	BlockRangeReadStreamPrivate *p = callback_private_data;
+
+	if (p->current_blocknum < p->last_exclusive)
+		return p->current_blocknum++;
+
+	return InvalidBlockNumber;
+}
+
+/*
  * Ask the callback which block it would like us to read next, with a one block
  * buffer in front to allow read_stream_unget_block() to work.
  */
@@ -449,7 +466,7 @@ read_stream_begin_impl(int flags,
 	queue_size = max_pinned_buffers + 1;
 
 	/*
-	 * Allocate the object, the buffers, the ios and per_data_data space in
+	 * Allocate the object, the buffers, the ios and per_buffer_data space in
 	 * one big chunk.  Though we have queue_size buffers, we want to be able
 	 * to assume that all the buffers for a single read are contiguous (i.e.
 	 * don't wrap around halfway through), so we allow temporary overflows of
