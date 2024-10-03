@@ -734,6 +734,12 @@ DefineRelation(CreateStmt *stmt, char relkind, Oid ownerId,
 	else
 		partitioned = false;
 
+	if (relkind == RELKIND_PARTITIONED_TABLE &&
+		stmt->relation->relpersistence == RELPERSISTENCE_UNLOGGED)
+		ereport(ERROR,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				 errmsg("partitioned tables cannot be unlogged")));
+
 	/*
 	 * Look up the namespace in which we are supposed to create the relation,
 	 * check we have permission to create there, lock it against concurrent
@@ -4993,8 +4999,7 @@ ATPrepCmd(List **wqueue, Relation rel, AlterTableCmd *cmd,
 			break;
 		case AT_SetLogged:		/* SET LOGGED */
 		case AT_SetUnLogged:	/* SET UNLOGGED */
-			ATSimplePermissions(cmd->subtype, rel,
-								ATT_TABLE | ATT_PARTITIONED_TABLE | ATT_SEQUENCE);
+			ATSimplePermissions(cmd->subtype, rel, ATT_TABLE | ATT_SEQUENCE);
 			if (tab->chgPersistence)
 				ereport(ERROR,
 						(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
@@ -18683,8 +18688,14 @@ ATExecAttachPartition(List **wqueue, Relation rel, PartitionCmd *cmd,
 	 * constraint as well.
 	 */
 	partBoundConstraint = get_qual_from_partbound(rel, cmd->bound);
-	partConstraint = list_concat(partBoundConstraint,
-								 RelationGetPartitionQual(rel));
+
+	/*
+	 * Use list_concat_copy() to avoid modifying partBoundConstraint in place,
+	 * since it's needed later to construct the constraint expression for
+	 * validating against the default partition, if any.
+	 */
+	partConstraint = list_concat_copy(partBoundConstraint,
+									  RelationGetPartitionQual(rel));
 
 	/* Skip validation if there are no constraints to validate. */
 	if (partConstraint)
