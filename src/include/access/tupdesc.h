@@ -29,6 +29,7 @@ typedef struct ConstrCheck
 {
 	char	   *ccname;
 	char	   *ccbin;			/* nodeToString representation of expr */
+	bool		ccenforced;
 	bool		ccvalid;
 	bool		ccnoinherit;	/* this is a non-inheritable constraint */
 } ConstrCheck;
@@ -158,9 +159,7 @@ TupleDescAttr(TupleDesc tupdesc, int i)
 
 #undef TupleDescAttrAddress
 
-#ifdef USE_ASSERT_CHECKING
 extern void verify_compact_attribute(TupleDesc, int attnum);
-#endif
 
 /*
  * Accessor for the i'th CompactAttribute element of tupdesc.

@@ -118,7 +118,6 @@ populate_compact_attribute(TupleDesc tupdesc, int attnum)
 	populate_compact_attribute_internal(src, dst);
 }
 
-#ifdef USE_ASSERT_CHECKING
 /*
  * verify_compact_attribute
  *		In Assert enabled builds, we verify that the CompactAttribute is
@@ -132,6 +131,7 @@ populate_compact_attribute(TupleDesc tupdesc, int attnum)
 void
 verify_compact_attribute(TupleDesc tupdesc, int attnum)
 {
+#ifdef USE_ASSERT_CHECKING
 	CompactAttribute *cattr = &tupdesc->compact_attrs[attnum];
 	Form_pg_attribute attr = TupleDescAttr(tupdesc, attnum);
 	CompactAttribute tmp;
@@ -150,9 +150,8 @@ verify_compact_attribute(TupleDesc tupdesc, int attnum)
 
 	/* Check the freshly populated CompactAttribute matches the TupleDesc's */
 	Assert(memcmp(&tmp, cattr, sizeof(CompactAttribute)) == 0);
-}
 #endif
-
+}
 
 /*
  * CreateTemplateTupleDesc
@@ -377,6 +376,7 @@ CreateTupleDescCopyConstr(TupleDesc tupdesc)
 			{
 				cpy->check[i].ccname = pstrdup(constr->check[i].ccname);
 				cpy->check[i].ccbin = pstrdup(constr->check[i].ccbin);
+				cpy->check[i].ccenforced = constr->check[i].ccenforced;
 				cpy->check[i].ccvalid = constr->check[i].ccvalid;
 				cpy->check[i].ccnoinherit = constr->check[i].ccnoinherit;
 			}
@@ -693,6 +693,7 @@ equalTupleDescs(TupleDesc tupdesc1, TupleDesc tupdesc2)
 
 			if (!(strcmp(check1->ccname, check2->ccname) == 0 &&
 				  strcmp(check1->ccbin, check2->ccbin) == 0 &&
+				  check1->ccenforced == check2->ccenforced &&
 				  check1->ccvalid == check2->ccvalid &&
 				  check1->ccnoinherit == check2->ccnoinherit))
 				return false;
