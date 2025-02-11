@@ -682,7 +682,8 @@ const char *const config_group_names[] =
 	[RESOURCES_DISK] = gettext_noop("Resource Usage / Disk"),
 	[RESOURCES_KERNEL] = gettext_noop("Resource Usage / Kernel Resources"),
 	[RESOURCES_BGWRITER] = gettext_noop("Resource Usage / Background Writer"),
-	[RESOURCES_ASYNCHRONOUS] = gettext_noop("Resource Usage / Asynchronous Behavior"),
+	[RESOURCES_IO] = gettext_noop("Resource Usage / I/O"),
+	[RESOURCES_WORKER_PROCESSES] = gettext_noop("Resource Usage / Worker Processes"),
 	[WAL_SETTINGS] = gettext_noop("Write-Ahead Log / Settings"),
 	[WAL_CHECKPOINTS] = gettext_noop("Write-Ahead Log / Checkpoints"),
 	[WAL_ARCHIVING] = gettext_noop("Write-Ahead Log / Archiving"),
@@ -1962,7 +1963,7 @@ struct config_bool ConfigureNamesBool[] =
 	},
 
 	{
-		{"parallel_leader_participation", PGC_USERSET, RESOURCES_ASYNCHRONOUS,
+		{"parallel_leader_participation", PGC_USERSET, RESOURCES_WORKER_PROCESSES,
 			gettext_noop("Controls whether Gather and Gather Merge also run subplans."),
 			gettext_noop("Should gather nodes also run subplans or just gather tuples?"),
 			GUC_EXPLAIN
@@ -3180,7 +3181,7 @@ struct config_int ConfigureNamesInt[] =
 	{
 		{"effective_io_concurrency",
 			PGC_USERSET,
-			RESOURCES_ASYNCHRONOUS,
+			RESOURCES_IO,
 			gettext_noop("Number of simultaneous requests that can be handled efficiently by the disk subsystem."),
 			NULL,
 			GUC_EXPLAIN
@@ -3194,7 +3195,7 @@ struct config_int ConfigureNamesInt[] =
 	{
 		{"maintenance_io_concurrency",
 			PGC_USERSET,
-			RESOURCES_ASYNCHRONOUS,
+			RESOURCES_IO,
 			gettext_noop("A variant of \"effective_io_concurrency\" that is used for maintenance work."),
 			NULL,
 			GUC_EXPLAIN
@@ -3209,7 +3210,7 @@ struct config_int ConfigureNamesInt[] =
 	{
 		{"io_combine_limit",
 			PGC_USERSET,
-			RESOURCES_ASYNCHRONOUS,
+			RESOURCES_IO,
 			gettext_noop("Limit on the size of data reads and writes."),
 			NULL,
 			GUC_UNIT_BLOCKS
@@ -3221,7 +3222,7 @@ struct config_int ConfigureNamesInt[] =
 	},
 
 	{
-		{"backend_flush_after", PGC_USERSET, RESOURCES_ASYNCHRONOUS,
+		{"backend_flush_after", PGC_USERSET, RESOURCES_IO,
 			gettext_noop("Number of pages after which previously performed writes are flushed to disk."),
 			NULL,
 			GUC_UNIT_BLOCKS
@@ -3234,7 +3235,7 @@ struct config_int ConfigureNamesInt[] =
 	{
 		{"max_worker_processes",
 			PGC_POSTMASTER,
-			RESOURCES_ASYNCHRONOUS,
+			RESOURCES_WORKER_PROCESSES,
 			gettext_noop("Maximum number of concurrent worker processes."),
 			NULL,
 		},
@@ -3496,7 +3497,7 @@ struct config_int ConfigureNamesInt[] =
 	},
 
 	{
-		{"max_parallel_maintenance_workers", PGC_USERSET, RESOURCES_ASYNCHRONOUS,
+		{"max_parallel_maintenance_workers", PGC_USERSET, RESOURCES_WORKER_PROCESSES,
 			gettext_noop("Sets the maximum number of parallel processes per maintenance operation."),
 			NULL
 		},
@@ -3506,7 +3507,7 @@ struct config_int ConfigureNamesInt[] =
 	},
 
 	{
-		{"max_parallel_workers_per_gather", PGC_USERSET, RESOURCES_ASYNCHRONOUS,
+		{"max_parallel_workers_per_gather", PGC_USERSET, RESOURCES_WORKER_PROCESSES,
 			gettext_noop("Sets the maximum number of parallel processes per executor node."),
 			NULL,
 			GUC_EXPLAIN
@@ -3517,7 +3518,7 @@ struct config_int ConfigureNamesInt[] =
 	},
 
 	{
-		{"max_parallel_workers", PGC_USERSET, RESOURCES_ASYNCHRONOUS,
+		{"max_parallel_workers", PGC_USERSET, RESOURCES_WORKER_PROCESSES,
 			gettext_noop("Sets the maximum number of parallel workers that can be active at one time."),
 			NULL,
 			GUC_EXPLAIN
@@ -4030,6 +4031,16 @@ struct config_real ConfigureNamesReal[] =
 		},
 		&log_xact_sample_rate,
 		0.0, 0.0, 1.0,
+		NULL, NULL, NULL
+	},
+
+	{
+		{"vacuum_max_eager_freeze_failure_rate", PGC_USERSET, VACUUM_FREEZING,
+			gettext_noop("Fraction of pages in a relation vacuum can scan and fail to freeze before disabling eager scanning."),
+			gettext_noop("A value of 0.0 disables eager scanning and a value of 1.0 will eagerly scan up to 100 percent of the all-visible pages in the relation. If vacuum successfully freezes these pages, the cap is lower than 100 percent, because the goal is to amortize page freezing across multiple vacuums.")
+		},
+		&vacuum_max_eager_freeze_failure_rate,
+		0.03, 0.0, 1.0,
 		NULL, NULL, NULL
 	},
 
