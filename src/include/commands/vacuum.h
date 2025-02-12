@@ -303,6 +303,7 @@ extern PGDLLIMPORT int vacuum_multixact_freeze_min_age;
 extern PGDLLIMPORT int vacuum_multixact_freeze_table_age;
 extern PGDLLIMPORT int vacuum_failsafe_age;
 extern PGDLLIMPORT int vacuum_multixact_failsafe_age;
+extern PGDLLIMPORT bool track_cost_delay_timing;
 
 /*
  * Relevant for vacuums implementing eager scanning. Normal vacuums may
@@ -330,6 +331,8 @@ extern PGDLLIMPORT bool VacuumFailsafeActive;
 extern PGDLLIMPORT double vacuum_cost_delay;
 extern PGDLLIMPORT int vacuum_cost_limit;
 
+extern PGDLLIMPORT int64 parallel_vacuum_worker_delay_ns;
+
 /* in commands/vacuum.c */
 extern void ExecVacuum(ParseState *pstate, VacuumStmt *vacstmt, bool isTopLevel);
 extern void vacuum(List *relations, VacuumParams *params,
@@ -356,7 +359,7 @@ extern bool vacuum_get_cutoffs(Relation rel, const VacuumParams *params,
 							   struct VacuumCutoffs *cutoffs);
 extern bool vacuum_xid_failsafe_check(const struct VacuumCutoffs *cutoffs);
 extern void vac_update_datfrozenxid(void);
-extern void vacuum_delay_point(void);
+extern void vacuum_delay_point(bool is_analyze);
 extern bool vacuum_is_permitted_for_relation(Oid relid, Form_pg_class reltuple,
 											 bits32 options);
 extern Relation vacuum_open_relation(Oid relid, RangeVar *relation,
