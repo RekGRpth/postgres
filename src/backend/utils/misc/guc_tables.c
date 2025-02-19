@@ -990,7 +990,7 @@ struct config_bool ConfigureNamesBool[] =
 	},
 	{
 		{"enable_self_join_elimination", PGC_USERSET, QUERY_TUNING_METHOD,
-			gettext_noop("Enable removal of unique self-joins."),
+			gettext_noop("Enables removal of unique self-joins."),
 			NULL,
 			GUC_EXPLAIN | GUC_NOT_IN_SAMPLE
 		},
@@ -1667,7 +1667,7 @@ struct config_bool ConfigureNamesBool[] =
 	},
 	{
 		{"row_security", PGC_USERSET, CLIENT_CONN_STATEMENT,
-			gettext_noop("Enable row security."),
+			gettext_noop("Enables row security."),
 			gettext_noop("When enabled, row security will be applied to all users.")
 		},
 		&row_security,
@@ -1685,7 +1685,7 @@ struct config_bool ConfigureNamesBool[] =
 	},
 	{
 		{"array_nulls", PGC_USERSET, COMPAT_OPTIONS_PREVIOUS,
-			gettext_noop("Enable input of NULL elements in arrays."),
+			gettext_noop("Enables input of NULL elements in arrays."),
 			gettext_noop("When turned on, unquoted NULL in an array input "
 						 "value means a null value; "
 						 "otherwise it is taken literally.")
@@ -1759,7 +1759,7 @@ struct config_bool ConfigureNamesBool[] =
 	{
 		{
 			"optimize_bounded_sort", PGC_USERSET, QUERY_TUNING_METHOD,
-			gettext_noop("Enable bounded sorting using heap sort."),
+			gettext_noop("Enables bounded sorting using heap sort."),
 			NULL,
 			GUC_NOT_IN_SAMPLE | GUC_EXPLAIN
 		},
@@ -1836,7 +1836,7 @@ struct config_bool ConfigureNamesBool[] =
 
 	{
 		{"synchronize_seqscans", PGC_USERSET, COMPAT_OPTIONS_PREVIOUS,
-			gettext_noop("Enable synchronized sequential scans."),
+			gettext_noop("Enables synchronized sequential scans."),
 			NULL
 		},
 		&synchronize_seqscans,
@@ -3066,6 +3066,18 @@ struct config_int ConfigureNamesInt[] =
 		&wal_sender_timeout,
 		60 * 1000, 0, INT_MAX,
 		NULL, NULL, NULL
+	},
+
+	{
+		{"idle_replication_slot_timeout", PGC_SIGHUP, REPLICATION_SENDING,
+			gettext_noop("Sets the duration a replication slot can remain idle before "
+						 "it is invalidated."),
+			NULL,
+			GUC_UNIT_MIN
+		},
+		&idle_replication_slot_timeout_mins,
+		0, 0, INT_MAX / SECS_PER_MINUTE,
+		check_idle_replication_slot_timeout, NULL, NULL
 	},
 
 	{
