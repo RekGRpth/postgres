@@ -107,6 +107,11 @@ static void show_sort_group_keys(PlanState *planstate, const char *qlabel,
 								 List *ancestors, ExplainState *es);
 static void show_sortorder_options(StringInfo buf, Node *sortexpr,
 								   Oid sortOperator, Oid collation, bool nullsFirst);
+static void show_window_def(WindowAggState *planstate,
+							List *ancestors, ExplainState *es);
+static void show_window_keys(StringInfo buf, PlanState *planstate,
+							 int nkeys, AttrNumber *keycols,
+							 List *ancestors, ExplainState *es);
 static void show_storage_info(char *maxStorageType, int64 maxSpaceUsed,
 							  ExplainState *es);
 static void show_tablesample(TableSampleClause *tsc, PlanState *planstate,
@@ -125,6 +130,7 @@ static void show_recursive_union_info(RecursiveUnionState *rstate,
 static void show_memoize_info(MemoizeState *mstate, List *ancestors,
 							  ExplainState *es);
 static void show_hashagg_info(AggState *aggstate, ExplainState *es);
+static void show_indexsearches_info(PlanState *planstate, ExplainState *es);
 static void show_tidbitmap_info(BitmapHeapScanState *planstate,
 								ExplainState *es);
 static void show_instrumentation_count(const char *qlabel, int which,
@@ -2096,6 +2102,7 @@ ExplainNode(PlanState *planstate, List *ancestors,
 			if (plan->qual)
 				show_instrumentation_count("Rows Removed by Filter", 1,
 										   planstate, es);
+			show_indexsearches_info(planstate, es);
 			break;
 		case T_IndexOnlyScan:
 			show_scan_qual(((IndexOnlyScan *) plan)->indexqual,
@@ -2112,10 +2119,12 @@ ExplainNode(PlanState *planstate, List *ancestors,
 			if (es->analyze)
 				ExplainPropertyFloat("Heap Fetches", NULL,
 									 planstate->instrument->ntuples2, 0, es);
+			show_indexsearches_info(planstate, es);
 			break;
 		case T_BitmapIndexScan:
 			show_scan_qual(((BitmapIndexScan *) plan)->indexqualorig,
 						   "Index Cond", planstate, ancestors, es);
+			show_indexsearches_info(planstate, es);
 			break;
 		case T_BitmapHeapScan:
 			show_scan_qual(((BitmapHeapScan *) plan)->bitmapqualorig,
@@ -2329,12 +2338,13 @@ ExplainNode(PlanState *planstate, List *ancestors,
 										   planstate, es);
 			break;
 		case T_WindowAgg:
+			show_window_def(castNode(WindowAggState, planstate), ancestors, es);
+			show_upper_qual(((WindowAgg *) plan)->runConditionOrig,
+							"Run Condition", planstate, ancestors, es);
 			show_upper_qual(plan->qual, "Filter", planstate, ancestors, es);
 			if (plan->qual)
 				show_instrumentation_count("Rows Removed by Filter", 1,
 										   planstate, es);
-			show_upper_qual(((WindowAgg *) plan)->runConditionOrig,
-							"Run Condition", planstate, ancestors, es);
 			show_windowagg_info(castNode(WindowAggState, planstate), es);
 			break;
 		case T_Group:
@@ -3000,6 +3010,113 @@ show_sortorder_options(StringInfo buf, Node *sortexpr,
 	else if (!nullsFirst && reverse)
 	{
 		appendStringInfoString(buf, " NULLS LAST");
+	}
+}
+
+/*
+ * Show the window definition for a WindowAgg node.
+ */
+static void
+show_window_def(WindowAggState *planstate, List *ancestors, ExplainState *es)
+{
+	WindowAgg  *wagg = (WindowAgg *) planstate->ss.ps.plan;
+	StringInfoData wbuf;
+	bool		needspace = false;
+
+	initStringInfo(&wbuf);
+	appendStringInfo(&wbuf, "%s AS (", quote_identifier(wagg->winname));
+
+	/* The key columns refer to the tlist of the child plan */
+	ancestors = lcons(wagg, ancestors);
+	if (wagg->partNumCols > 0)
+	{
+		appendStringInfoString(&wbuf, "PARTITION BY ");
+		show_window_keys(&wbuf, outerPlanState(planstate),
+						 wagg->partNumCols, wagg->partColIdx,
+						 ancestors, es);
+		needspace = true;
+	}
+	if (wagg->ordNumCols > 0)
+	{
+		if (needspace)
+			appendStringInfoChar(&wbuf, ' ');
+		appendStringInfoString(&wbuf, "ORDER BY ");
+		show_window_keys(&wbuf, outerPlanState(planstate),
+						 wagg->ordNumCols, wagg->ordColIdx,
+						 ancestors, es);
+		needspace = true;
+	}
+	ancestors = list_delete_first(ancestors);
+	if (wagg->frameOptions & FRAMEOPTION_NONDEFAULT)
+	{
+		List	   *context;
+		bool		useprefix;
+		char	   *framestr;
+
+		/* Set up deparsing context for possible frame expressions */
+		context = set_deparse_context_plan(es->deparse_cxt,
+										   (Plan *) wagg,
+										   ancestors);
+		useprefix = (es->rtable_size > 1 || es->verbose);
+		framestr = get_window_frame_options_for_explain(wagg->frameOptions,
+														wagg->startOffset,
+														wagg->endOffset,
+														context,
+														useprefix);
+		if (needspace)
+			appendStringInfoChar(&wbuf, ' ');
+		appendStringInfoString(&wbuf, framestr);
+		pfree(framestr);
+	}
+	appendStringInfoChar(&wbuf, ')');
+	ExplainPropertyText("Window", wbuf.data, es);
+	pfree(wbuf.data);
+}
+
+/*
+ * Append the keys of a window's PARTITION BY or ORDER BY clause to buf.
+ * We can't use show_sort_group_keys for this because that's too opinionated
+ * about how the result will be displayed.
+ * Note that the "planstate" node should be the WindowAgg's child.
+ */
+static void
+show_window_keys(StringInfo buf, PlanState *planstate,
+				 int nkeys, AttrNumber *keycols,
+				 List *ancestors, ExplainState *es)
+{
+	Plan	   *plan = planstate->plan;
+	List	   *context;
+	bool		useprefix;
+
+	/* Set up deparsing context */
+	context = set_deparse_context_plan(es->deparse_cxt,
+									   plan,
+									   ancestors);
+	useprefix = (es->rtable_size > 1 || es->verbose);
+
+	for (int keyno = 0; keyno < nkeys; keyno++)
+	{
+		/* find key expression in tlist */
+		AttrNumber	keyresno = keycols[keyno];
+		TargetEntry *target = get_tle_by_resno(plan->targetlist,
+											   keyresno);
+		char	   *exprstr;
+
+		if (!target)
+			elog(ERROR, "no tlist entry for key %d", keyresno);
+		/* Deparse the expression, showing any top-level cast */
+		exprstr = deparse_expression((Node *) target->expr, context,
+									 useprefix, true);
+		if (keyno > 0)
+			appendStringInfoString(buf, ", ");
+		appendStringInfoString(buf, exprstr);
+		pfree(exprstr);
+
+		/*
+		 * We don't attempt to provide sort order information because
+		 * WindowAgg carries equality operators not comparison operators;
+		 * compare show_agg_keys.
+		 */
 	}
 }
 
@@ -3853,6 +3970,65 @@ show_hashagg_info(AggState *aggstate, ExplainState *es)
 				ExplainCloseWorker(n, es);
 		}
 	}
+}
+
+/*
+ * Show the total number of index searches for a
+ * IndexScan/IndexOnlyScan/BitmapIndexScan node
+ */
+static void
+show_indexsearches_info(PlanState *planstate, ExplainState *es)
+{
+	Plan	   *plan = planstate->plan;
+	SharedIndexScanInstrumentation *SharedInfo = NULL;
+	uint64		nsearches = 0;
+
+	if (!es->analyze)
+		return;
+
+	/* Initialize counters with stats from the local process first */
+	switch (nodeTag(plan))
+	{
+		case T_IndexScan:
+			{
+				IndexScanState *indexstate = ((IndexScanState *) planstate);
+
+				nsearches = indexstate->iss_Instrument.nsearches;
+				SharedInfo = indexstate->iss_SharedInfo;
+				break;
+			}
+		case T_IndexOnlyScan:
+			{
+				IndexOnlyScanState *indexstate = ((IndexOnlyScanState *) planstate);
+
+				nsearches = indexstate->ioss_Instrument.nsearches;
+				SharedInfo = indexstate->ioss_SharedInfo;
+				break;
+			}
+		case T_BitmapIndexScan:
+			{
+				BitmapIndexScanState *indexstate = ((BitmapIndexScanState *) planstate);
+
+				nsearches = indexstate->biss_Instrument.nsearches;
+				SharedInfo = indexstate->biss_SharedInfo;
+				break;
+			}
+		default:
+			break;
+	}
+
+	/* Next get the sum of the counters set within each and every process */
+	if (SharedInfo)
+	{
+		for (int i = 0; i < SharedInfo->num_workers; ++i)
+		{
+			IndexScanInstrumentation *winstrument = &SharedInfo->winstrument[i];
+
+			nsearches += winstrument->nsearches;
+		}
+	}
+
+	ExplainPropertyUInteger("Index Searches", NULL, nsearches, es);
 }
 
 /*
