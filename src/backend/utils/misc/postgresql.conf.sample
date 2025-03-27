@@ -204,7 +204,8 @@
 					# (change requires restart)
 #io_combine_limit = 128kB		# usually 1-128 blocks (depends on OS)
 
-#io_method = worker			# worker, sync (change requires restart)
+#io_method = worker			# worker, io_uring, sync
+					# (change requires restart)
 #io_max_concurrency = -1		# Max number of IOs that one process
 					# can execute simultaneously
 					# -1 sets based on shared_buffers
@@ -663,7 +664,6 @@
 # - Monitoring -
 
 #compute_query_id = auto
-#query_id_squash_values = off
 #log_statement_stats = off
 #log_parser_stats = off
 #log_planner_stats = off

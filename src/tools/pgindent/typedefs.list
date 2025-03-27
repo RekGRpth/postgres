@@ -1169,6 +1169,7 @@ HeadlineJsonState
 HeadlineParsedText
 HeadlineWordEntry
 HeapCheckContext
+HeapCheckReadStreamData
 HeapPageFreeze
 HeapScanDesc
 HeapTuple
@@ -2151,6 +2152,7 @@ PgAioReturn
 PgAioTargetData
 PgAioTargetID
 PgAioTargetInfo
+PgAioUringContext
 PgAioWaitRef
 PgArchData
 PgBackendGSSStatus
