@@ -1772,10 +1772,8 @@ AC_CHECK_FUNCS(m4_normalize([
 	pthread_is_threaded_np
 	setproctitle
 	setproctitle_fast
-	snprintf_l
 	strchrnul
 	strsignal
-	strtod_l
 	syncfs
 	sync_file_range
 	uselocale
@@ -2069,6 +2067,15 @@ if test x"$host_cpu" = x"x86_64"; then
   PGAC_AVX512_POPCNT_INTRINSICS()
   if test x"$pgac_avx512_popcnt_intrinsics" = x"yes"; then
     AC_DEFINE(USE_AVX512_POPCNT_WITH_RUNTIME_CHECK, 1, [Define to 1 to use AVX-512 popcount instructions with a runtime check.])
+  fi
+fi
+
+# Check for SVE popcount intrinsics
+#
+if test x"$host_cpu" = x"aarch64"; then
+  PGAC_SVE_POPCNT_INTRINSICS()
+  if test x"$pgac_sve_popcnt_intrinsics" = x"yes"; then
+    AC_DEFINE(USE_SVE_POPCNT_WITH_RUNTIME_CHECK, 1, [Define to 1 to use SVE popcount instructions with a runtime check.])
   fi
 fi
 

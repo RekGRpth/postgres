@@ -298,6 +298,15 @@ pg_ceil_log2_64(uint64 num)
 #endif
 #endif
 
+/*
+ * On AArch64, we can use Neon instructions if the compiler provides access to
+ * them (as indicated by __ARM_NEON).  As in simd.h, we assume that all
+ * available 64-bit hardware has Neon support.
+ */
+#if defined(__aarch64__) && defined(__ARM_NEON)
+#define POPCNT_AARCH64 1
+#endif
+
 #ifdef TRY_POPCNT_X86_64
 /* Attempt to use the POPCNT instruction, but perform a runtime check first */
 extern PGDLLIMPORT int (*pg_popcount32) (uint32 word);
@@ -313,6 +322,23 @@ extern PGDLLIMPORT uint64 (*pg_popcount_masked_optimized) (const char *buf, int 
 extern bool pg_popcount_avx512_available(void);
 extern uint64 pg_popcount_avx512(const char *buf, int bytes);
 extern uint64 pg_popcount_masked_avx512(const char *buf, int bytes, bits8 mask);
+#endif
+
+#elif POPCNT_AARCH64
+/* Use the Neon version of pg_popcount{32,64} without function pointer. */
+extern int	pg_popcount32(uint32 word);
+extern int	pg_popcount64(uint64 word);
+
+/*
+ * We can try to use an SVE-optimized pg_popcount() on some systems  For that,
+ * we do use a function pointer.
+ */
+#ifdef USE_SVE_POPCNT_WITH_RUNTIME_CHECK
+extern PGDLLIMPORT uint64 (*pg_popcount_optimized) (const char *buf, int bytes);
+extern PGDLLIMPORT uint64 (*pg_popcount_masked_optimized) (const char *buf, int bytes, bits8 mask);
+#else
+extern uint64 pg_popcount_optimized(const char *buf, int bytes);
+extern uint64 pg_popcount_masked_optimized(const char *buf, int bytes, bits8 mask);
 #endif
 
 #else
