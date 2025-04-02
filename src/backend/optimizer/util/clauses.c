@@ -2326,7 +2326,7 @@ convert_saop_to_hashed_saop_walker(Node *node, void *context)
 						/* Looks good. Fill in the hash functions */
 						saop->hashfuncid = lefthashfunc;
 					}
-					return true;
+					return false;
 				}
 			}
 			else				/* !saop->useOr */
@@ -2364,7 +2364,7 @@ convert_saop_to_hashed_saop_walker(Node *node, void *context)
 						 */
 						saop->negfuncid = get_opcode(negator);
 					}
-					return true;
+					return false;
 				}
 			}
 		}
@@ -4742,7 +4742,7 @@ inline_function(Oid funcid, Oid result_type, Oid result_collid,
 	if (check_sql_fn_retval(list_make1(querytree_list),
 							result_type, rettupdesc,
 							funcform->prokind,
-							false, NULL))
+							false))
 		goto fail;				/* reject whole-tuple-result cases */
 
 	/*
@@ -5288,7 +5288,7 @@ inline_set_returning_function(PlannerInfo *root, RangeTblEntry *rte)
 	if (!check_sql_fn_retval(list_make1(querytree_list),
 							 fexpr->funcresulttype, rettupdesc,
 							 funcform->prokind,
-							 true, NULL) &&
+							 true) &&
 		(functypclass == TYPEFUNC_COMPOSITE ||
 		 functypclass == TYPEFUNC_COMPOSITE_DOMAIN ||
 		 functypclass == TYPEFUNC_RECORD))

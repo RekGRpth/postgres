@@ -15401,7 +15401,7 @@ fi
 LIBS_including_readline="$LIBS"
 LIBS=`echo "$LIBS" | sed -e 's/-ledit//g' -e 's/-lreadline//g'`
 
-for ac_func in backtrace_symbols copyfile copy_file_range elf_aux_info getauxval getifaddrs getpeerucred inet_pton kqueue localeconv_l mbstowcs_l memset_s posix_fallocate ppoll pthread_is_threaded_np setproctitle setproctitle_fast strchrnul strsignal syncfs sync_file_range uselocale wcstombs_l
+for ac_func in backtrace_symbols copyfile copy_file_range elf_aux_info getauxval getifaddrs getpeerucred inet_pton kqueue localeconv_l mbstowcs_l memset_s posix_fallocate ppoll pthread_is_threaded_np setproctitle setproctitle_fast strsignal syncfs sync_file_range uselocale wcstombs_l
 do :
   as_ac_var=`$as_echo "ac_cv_func_$ac_func" | $as_tr_sh`
 ac_fn_c_check_func "$LINENO" "$ac_func" "$as_ac_var"
@@ -15927,6 +15927,16 @@ fi
 cat >>confdefs.h <<_ACEOF
 #define HAVE_DECL_STRSEP $ac_have_decl
 _ACEOF
+ac_fn_c_check_decl "$LINENO" "timingsafe_bcmp" "ac_cv_have_decl_timingsafe_bcmp" "$ac_includes_default"
+if test "x$ac_cv_have_decl_timingsafe_bcmp" = xyes; then :
+  ac_have_decl=1
+else
+  ac_have_decl=0
+fi
+
+cat >>confdefs.h <<_ACEOF
+#define HAVE_DECL_TIMINGSAFE_BCMP $ac_have_decl
+_ACEOF
 
 
 # We can't use AC_CHECK_FUNCS to detect these functions, because it
@@ -15953,6 +15963,18 @@ fi
 
 cat >>confdefs.h <<_ACEOF
 #define HAVE_DECL_PWRITEV $ac_have_decl
+_ACEOF
+
+ac_fn_c_check_decl "$LINENO" "strchrnul" "ac_cv_have_decl_strchrnul" "#include <string.h>
+"
+if test "x$ac_cv_have_decl_strchrnul" = xyes; then :
+  ac_have_decl=1
+else
+  ac_have_decl=0
+fi
+
+cat >>confdefs.h <<_ACEOF
+#define HAVE_DECL_STRCHRNUL $ac_have_decl
 _ACEOF
 
 
@@ -16082,6 +16104,19 @@ else
   case " $LIBOBJS " in
   *" strsep.$ac_objext "* ) ;;
   *) LIBOBJS="$LIBOBJS strsep.$ac_objext"
+ ;;
+esac
+
+fi
+
+ac_fn_c_check_func "$LINENO" "timingsafe_bcmp" "ac_cv_func_timingsafe_bcmp"
+if test "x$ac_cv_func_timingsafe_bcmp" = xyes; then :
+  $as_echo "#define HAVE_TIMINGSAFE_BCMP 1" >>confdefs.h
+
+else
+  case " $LIBOBJS " in
+  *" timingsafe_bcmp.$ac_objext "* ) ;;
+  *) LIBOBJS="$LIBOBJS timingsafe_bcmp.$ac_objext"
  ;;
 esac
 

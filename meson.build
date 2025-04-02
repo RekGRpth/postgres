@@ -2569,6 +2569,7 @@ decl_checks = [
   ['strlcpy', 'string.h'],
   ['strnlen', 'string.h'],
   ['strsep',  'string.h'],
+  ['timingsafe_bcmp',  'string.h'],
 ]
 
 # Need to check for function declarations for these functions, because
@@ -2577,6 +2578,7 @@ decl_checks = [
 decl_checks += [
   ['preadv', 'sys/uio.h'],
   ['pwritev', 'sys/uio.h'],
+  ['strchrnul', 'string.h'],
 ]
 
 # Check presence of some optional LLVM functions.
@@ -2593,8 +2595,23 @@ foreach c : decl_checks
   args = c.get(2, {})
   varname = 'HAVE_DECL_' + func.underscorify().to_upper()
 
-  found = cc.has_header_symbol(header, func,
-    args: test_c_args, include_directories: postgres_inc,
+  found = cc.compiles('''
+#include <@0@>
+
+int main()
+{
+#ifndef @1@
+    (void) @1@;
+#endif
+
+return 0;
+}
+'''.format(header, func),
+    name: 'test whether @0@ is declared'.format(func),
+    # need to add cflags_warn to get at least
+    # -Werror=unguarded-availability-new if applicable
+    args: test_c_args + cflags_warn,
+    include_directories: postgres_inc,
     kwargs: args)
   cdata.set10(varname, found, description:
 '''Define to 1 if you have the declaration of `@0@', and to 0 if you
@@ -2802,7 +2819,6 @@ func_checks = [
   ['shm_unlink', {'dependencies': [rt_dep], 'define': false}],
   ['shmget', {'dependencies': [cygipc_dep], 'define': false}],
   ['socket', {'dependencies': [socket_dep], 'define': false}],
-  ['strchrnul'],
   ['strerror_r', {'dependencies': [thread_dep]}],
   ['strlcat'],
   ['strlcpy'],
@@ -2811,6 +2827,7 @@ func_checks = [
   ['strsignal'],
   ['sync_file_range'],
   ['syncfs'],
+  ['timingsafe_bcmp'],
   ['uselocale'],
   ['wcstombs_l'],
 ]
