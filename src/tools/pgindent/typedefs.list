@@ -673,6 +673,8 @@ DumpableObjectWithAcl
 DynamicFileList
 DynamicZoneAbbrev
 EC_KEY
+ECDerivesKey
+ECDerivesEntry
 EDGE
 ENGINE
 EOM_flatten_into_method
@@ -2752,6 +2754,8 @@ SimpleStringListCell
 SingleBoundSortItem
 Size
 SkipPages
+SkipSupport
+SkipSupportData
 SlabBlock
 SlabContext
 SlabSlot

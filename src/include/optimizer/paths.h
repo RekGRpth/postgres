@@ -167,7 +167,8 @@ extern bool exprs_known_equal(PlannerInfo *root, Node *item1, Node *item2,
 extern EquivalenceClass *match_eclasses_to_foreign_key_col(PlannerInfo *root,
 														   ForeignKeyOptInfo *fkinfo,
 														   int colno);
-extern RestrictInfo *find_derived_clause_for_ec_member(EquivalenceClass *ec,
+extern RestrictInfo *find_derived_clause_for_ec_member(PlannerInfo *root,
+													   EquivalenceClass *ec,
 													   EquivalenceMember *em);
 extern void add_child_rel_equivalences(PlannerInfo *root,
 									   AppendRelInfo *appinfo,
@@ -197,6 +198,7 @@ extern bool eclass_useful_for_merging(PlannerInfo *root,
 extern bool is_redundant_derived_clause(RestrictInfo *rinfo, List *clauselist);
 extern bool is_redundant_with_indexclauses(RestrictInfo *rinfo,
 										   List *indexclauses);
+extern void ec_clear_derived_clauses(EquivalenceClass *ec);
 
 /*
  * pathkeys.c
@@ -270,7 +272,7 @@ extern bool has_useful_pathkeys(PlannerInfo *root, RelOptInfo *rel);
 extern List *append_pathkeys(List *target, List *source);
 extern PathKey *make_canonical_pathkey(PlannerInfo *root,
 									   EquivalenceClass *eclass, Oid opfamily,
-									   int strategy, bool nulls_first);
+									   CompareType cmptype, bool nulls_first);
 extern void add_paths_to_append_rel(PlannerInfo *root, RelOptInfo *rel,
 									List *live_childrels);
 

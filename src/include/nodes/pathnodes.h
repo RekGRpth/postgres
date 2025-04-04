@@ -1402,6 +1402,18 @@ typedef struct JoinDomain
  * entry: consider SELECT random() AS a, random() AS b ... ORDER BY b,a.
  * So we record the SortGroupRef of the originating sort clause.
  *
+ * Derived equality clauses are stored in ec_derives_list. For small queries,
+ * this list is scanned directly during lookup. For larger queries -- e.g.,
+ * with many partitions or joins -- a hash table (ec_derives_hash) is built
+ * when the list grows beyond a threshold, for faster lookup. When present,
+ * the hash table contains the same RestrictInfos and is maintained alongside
+ * the list. We retain the list even when the hash is used to simplify
+ * serialization (e.g., in _outEquivalenceClass()) and support
+ * EquivalenceClass merging.
+ *
+ * In contrast, ec_sources holds equality clauses that appear directly in the
+ * query. These are typically few and do not require a hash table for lookup.
+ *
  * NB: if ec_merged isn't NULL, this class has been merged into another, and
  * should be ignored in favor of using the pointed-to class.
  *
@@ -1421,7 +1433,10 @@ typedef struct EquivalenceClass
 	Oid			ec_collation;	/* collation, if datatypes are collatable */
 	List	   *ec_members;		/* list of EquivalenceMembers */
 	List	   *ec_sources;		/* list of generating RestrictInfos */
-	List	   *ec_derives;		/* list of derived RestrictInfos */
+	List	   *ec_derives_list;	/* list of derived RestrictInfos */
+	struct derives_hash *ec_derives_hash;	/* optional hash table for fast
+											 * lookup; contains same
+											 * RestrictInfos as list */
 	Relids		ec_relids;		/* all relids appearing in ec_members, except
 								 * for child members (see below) */
 	bool		ec_has_const;	/* any pseudoconstants in ec_members? */
@@ -1491,9 +1506,7 @@ typedef struct EquivalenceMember
  * equivalent and closely-related orderings. (See optimizer/README for more
  * information.)
  *
- * Note: pk_strategy is either BTLessStrategyNumber (for ASC) or
- * BTGreaterStrategyNumber (for DESC).  We assume that all ordering-capable
- * index types will use btree-compatible strategy numbers.
+ * Note: pk_strategy is either COMPARE_LT (for ASC) or COMPARE_GT (for DESC).
  */
 typedef struct PathKey
 {
@@ -1503,8 +1516,8 @@ typedef struct PathKey
 
 	/* the value that is ordered */
 	EquivalenceClass *pk_eclass pg_node_attr(copy_as_scalar, equal_as_scalar);
-	Oid			pk_opfamily;	/* btree opfamily defining the ordering */
-	int			pk_strategy;	/* sort direction (ASC or DESC) */
+	Oid			pk_opfamily;	/* index opfamily defining the ordering */
+	CompareType pk_cmptype;		/* sort direction (ASC or DESC) */
 	bool		pk_nulls_first; /* do NULLs come before normal values? */
 } PathKey;
 
@@ -2769,9 +2782,9 @@ typedef struct RestrictInfo
 typedef struct MergeScanSelCache
 {
 	/* Ordering details (cache lookup key) */
-	Oid			opfamily;		/* btree opfamily defining the ordering */
+	Oid			opfamily;		/* index opfamily defining the ordering */
 	Oid			collation;		/* collation for the ordering */
-	int			strategy;		/* sort direction (ASC or DESC) */
+	CompareType cmptype;		/* sort direction (ASC or DESC) */
 	bool		nulls_first;	/* do NULLs come before normal values? */
 	/* Results */
 	Selectivity leftstartsel;	/* first-join fraction for clause left side */
