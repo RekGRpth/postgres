@@ -111,7 +111,7 @@ Author: Tom Lane <tgl@sss.pgh.pa.us>
 
 <listitem>
 <para>
-Prevent COPY IN from treating \. as an end-of-file marker when reading CSV files (Daniel Vérité, Tom Lane)
+Prevent COPY FROM from treating \. as an end-of-file marker when reading CSV files (Daniel Vérité, Tom Lane)
 <ulink url="&commit_baseurl;770233748">&sect;</ulink>
 <ulink url="&commit_baseurl;da8a4c166">&sect;</ulink>
 </para>
@@ -363,12 +363,43 @@ Allow merge joins to use incremental sorts (Richard Guo)
 <!--
 Author: David Rowley <drowley@postgresql.org>
 2024-08-20 [adf97c156] Speed up Hash Join by making ExprStates support hashing
+Author: David Rowley <drowley@postgresql.org>
+2024-12-11 [0f5738202] Use ExprStates for hashing in GROUP BY and SubPlans
+Author: Jeff Davis <jdavis@postgresql.org>
+2025-03-24 [4d143509c] Create accessor functions for TupleHashEntry.
+Author: Jeff Davis <jdavis@postgresql.org>
+2025-03-24 [a0942f441] Add ExecCopySlotMinimalTupleExtra().
+Author: Jeff Davis <jdavis@postgresql.org>
+2025-03-24 [626df47ad] Remove 'additional' pointer from TupleHashEntryData.
 -->
 
 <listitem>
 <para>
-Improve the performance of hash joins (David Rowley)
+Improve the performance and reduce memory usage of hash joins and GROUP BY (David Rowley, Jeff Davis)
 <ulink url="&commit_baseurl;adf97c156">&sect;</ulink>
+<ulink url="&commit_baseurl;0f5738202">&sect;</ulink>
+<ulink url="&commit_baseurl;4d143509c">&sect;</ulink>
+<ulink url="&commit_baseurl;a0942f441">&sect;</ulink>
+<ulink url="&commit_baseurl;626df47ad">&sect;</ulink>
+</para>
+
+<para>
+This also improves hash set operations used by EXCEPT, and hash lookups of subplan values.
+</para>
+</listitem>
+
+<!--
+Author: Amit Langote <amitlan@postgresql.org>
+2025-04-04 [88f55bc97] Make derived clause lookup in EquivalenceClass more effi
+Author: David Rowley <drowley@postgresql.org>
+2025-04-08 [d69d45a5a] Speedup child EquivalenceMember lookup in planner
+-->
+
+<listitem>
+<para>
+Allow partitions to be pruned more efficienty (Ashutosh Bapat, Yuya Watari, David Rowley)
+<ulink url="&commit_baseurl;88f55bc97">&sect;</ulink>
+<ulink url="&commit_baseurl;d69d45a5a">&sect;</ulink>
 </para>
 </listitem>
 
@@ -381,20 +412,15 @@ Author: Amit Langote <amitlan@postgresql.org>
 2025-02-07 [cbc127917] Track unpruned relids to avoid processing pruned relatio
 Author: Amit Langote <amitlan@postgresql.org>
 2025-02-20 [525392d57] Don't lock partitions pruned by initial pruning
-Author: Amit Langote <amitlan@postgresql.org>
-2025-04-04 [88f55bc97] Make derived clause lookup in EquivalenceClass more effi
-Author: David Rowley <drowley@postgresql.org>
-2025-04-08 [d69d45a5a] Speedup child EquivalenceMember lookup in planner
 -->
+
 <listitem>
 <para>
-Allow partitions to be pruned earlier, quicker, and skipped in more places (Amit Langote, Ashutosh Bapat, Yuya Watari, David Rowley)
+Avoid the locking of pruned partitions during planning (Amit Langote)
 <ulink url="&commit_baseurl;bb3ec16e1">&sect;</ulink>
 <ulink url="&commit_baseurl;d47cbf474">&sect;</ulink>
 <ulink url="&commit_baseurl;cbc127917">&sect;</ulink>
 <ulink url="&commit_baseurl;525392d57">&sect;</ulink>
-<ulink url="&commit_baseurl;88f55bc97">&sect;</ulink>
-<ulink url="&commit_baseurl;d69d45a5a">&sect;</ulink>
 </para>
 </listitem>
 
@@ -757,7 +783,7 @@ Add per-backend I/O statistics reporting (Bertrand Drouvot)
 </para>
 
 <para>
-The statistics are accessed via pg_stat_get_backend_io().  Per-backend statistics can be cleared via pg_stat_reset_backend_stats().
+The statistics are accessed via pg_stat_get_backend_io().  Per-backend I/O statistics can be cleared via pg_stat_reset_backend_stats().
 </para>
 </listitem>
 
@@ -840,6 +866,10 @@ Author: Michael Paquier <michael@paquier.xyz>
 <para>
 Add function pg_stat_get_backend_wal() to return per-backend WAL statistics (Bertrand Drouvot)
 <ulink url="&commit_baseurl;76def4cdd">&sect;</ulink>
+</para>
+
+<para>
+Per-backend WAL statistics can be cleared via pg_stat_reset_backend_stats().
 </para>
 </listitem>
 
@@ -1121,12 +1151,15 @@ Add function pg_check_fipsmode() to report the server's FIPS mode (Daniel Gustaf
 <!--
 Author: Heikki Linnakangas <heikki.linnakangas@iki.fi>
 2025-04-02 [a460251f0] Make cancel request keys longer
+Author: Heikki Linnakangas <heikki.linnakangas@iki.fi>
+2024-07-29 [9d9b9d46f] Move cancel key generation to after forking the backend
 -->
 
 <listitem>
 <para>
-Make cancel request keys 256 bits (Heikki Linnakangas)
+Make cancel request keys 256 bits (Heikki Linnakangas, Jelte Fennema-Nio)
 <ulink url="&commit_baseurl;a460251f0">&sect;</ulink>
+<ulink url="&commit_baseurl;9d9b9d46f">&sect;</ulink>
 </para>
 
 <para>
@@ -1527,23 +1560,6 @@ This is specified by WITHOUT OVERLAPS on the last column.
 </para>
 </listitem>
 
-
-<!--
-Author: Peter Eisentraut <peter@eisentraut.org>
-2024-11-15 [9321d2fdf] Fix collation handling for foreign keys
--->
-
-<listitem>
-<para>
-Require primary/foreign key relationships to use either deterministic collations or the the same nondeterministic collations (Peter Eisentraut)
-<ulink url="&commit_baseurl;9321d2fdf">&sect;</ulink>
-</para>
-
-<para>
-The restore of a pg_dump, also used by pg_upgrade, will fail if these requirements are not met;  schema changes must be made for these upgrade methods to succeed.
-</para>
-</listitem>
-
 <!--
 Author: Peter Eisentraut <peter@eisentraut.org>
 2025-01-11 [ca87c415e] Add support for NOT ENFORCED in CHECK constraints
@@ -1564,6 +1580,38 @@ This also adds column pg_constraint.conenforced.
 </listitem>
 
 <!--
+Author: Peter Eisentraut <peter@eisentraut.org>
+2024-11-15 [9321d2fdf] Fix collation handling for foreign keys
+-->
+
+<listitem>
+<para>
+Require primary/foreign key relationships to use either deterministic collations or the the same nondeterministic collations (Peter Eisentraut)
+<ulink url="&commit_baseurl;9321d2fdf">&sect;</ulink>
+</para>
+
+<para>
+The restore of a pg_dump, also used by pg_upgrade, will fail if these requirements are not met;  schema changes must be made for these upgrade methods to succeed.
+</para>
+</listitem>
+
+<!--
+Author: Álvaro Herrera <alvherre@alvh.no-ip.org>
+2024-11-08 [14e87ffa5] Add pg_constraint rows for not-null constraints
+-->
+
+<listitem>
+<para>
+Store column NOT NULL specifications in pg_constraint (Álvaro Herrera, Bernd Helmle)
+<ulink url="&commit_baseurl;14e87ffa5">&sect;</ulink>
+</para>
+
+<para>
+This allows names to be specified for NOT NULL constraint.  This also adds NOT NULL constraints to foreign tables and NOT NULL inheritance control to local tables.
+</para>
+</listitem>
+
+<!--
 Author: Álvaro Herrera <alvherre@alvh.no-ip.org>
 2025-04-07 [a379061a2] Allow NOT NULL constraints to be added as NOT VALID
 -->
@@ -1572,6 +1620,25 @@ Author: Álvaro Herrera <alvherre@alvh.no-ip.org>
 <para>
 Allow ALTER TABLE to set the NOT VALID attribute of NOT NULL constraints (Rushabh Lathia, Jian He)
 <ulink url="&commit_baseurl;a379061a2">&sect;</ulink>
+</para>
+</listitem>
+
+<!--
+Author: Álvaro Herrera <alvherre@alvh.no-ip.org>
+2025-03-05 [f4e53e10b] Add ALTER TABLE ... ALTER CONSTRAINT ... SET [NO] INHERI
+Author: Álvaro Herrera <alvherre@alvh.no-ip.org>
+2025-03-27 [4a02af8b1] Simplify syntax for ALTER TABLE ALTER CONSTRAINT NO INHE
+-->
+
+<listitem>
+<para>
+Allow modification of the inheritability of NOT NULL constraints (Suraj Kharage, Álvaro Herrera)
+<ulink url="&commit_baseurl;f4e53e10b">&sect;</ulink>
+<ulink url="&commit_baseurl;4a02af8b1">&sect;</ulink>
+</para>
+
+<para>
+The syntax is ALTER TABLE ... ALTER CONSTRAINT ... [NO] INHERIT.
 </para>
 </listitem>
 
@@ -1603,41 +1670,6 @@ This was previously erroneously prohibited.
 </para>
 </listitem>
 
-<!--
-Author: Álvaro Herrera <alvherre@alvh.no-ip.org>
-2025-03-05 [f4e53e10b] Add ALTER TABLE ... ALTER CONSTRAINT ... SET [NO] INHERI
-Author: Álvaro Herrera <alvherre@alvh.no-ip.org>
-2025-03-27 [4a02af8b1] Simplify syntax for ALTER TABLE ALTER CONSTRAINT NO INHE
--->
-
-<listitem>
-<para>
-Allow modification of the inheritability of constraints (Suraj Kharage, Álvaro Herrera)
-<ulink url="&commit_baseurl;f4e53e10b">&sect;</ulink>
-<ulink url="&commit_baseurl;4a02af8b1">&sect;</ulink>
-</para>
-
-<para>
-The syntax is ALTER TABLE ... ALTER CONSTRAINT ... [NO] INHERIT.
-</para>
-</listitem>
-
-<!--
-Author: Álvaro Herrera <alvherre@alvh.no-ip.org>
-2024-11-08 [14e87ffa5] Add pg_constraint rows for not-null constraints
--->
-
-<listitem>
-<para>
-Store column NOT NULL specifications in pg_constraint (Álvaro Herrera, Bernd Helmle)
-<ulink url="&commit_baseurl;14e87ffa5">&sect;</ulink>
-</para>
-
-<para>
-This allows names to be specified for NOT NULL constraint.  This also adds NOT NULL constraints to foreign tables and NOT NULL inheritance control to local tables.
-</para>
-</listitem>
-
       </itemizedlist>
     </sect4>
 
@@ -1653,12 +1685,12 @@ Author: Fujii Masao <fujii@postgresql.org>
 
 <listitem>
 <para>
-Add REJECT_LIMIT to control the number of invalid rows COPY IN can ignore (Atsushi Torikoshi)
+Add REJECT_LIMIT to control the number of invalid rows COPY FROM can ignore (Atsushi Torikoshi)
 <ulink url="&commit_baseurl;4ac2a9bec">&sect;</ulink>
 </para>
 
 <para>
-This is active when ON_ERROR = 'ignore'.
+This is available when ON_ERROR = 'ignore'.
 </para>
 </listitem>
 
@@ -1676,12 +1708,12 @@ Allow COPY TO to copy rows from populated materialized view (Jian He)
 
 <!--
 Author: Fujii Masao <fujii@postgresql.org>
-2024-10-03 [e7834a1a2] Add log_verbosity = 'silent' support to COPY command.
+2024-10-03 [e7834a1a2] Add LOG_VERBOSITY = 'silent' support to COPY command.
 -->
 
 <listitem>
 <para>
-Add COPY log_verbosity level "silent" to suppress all log output (Atsushi Torikoshi)
+Add COPY LOG_VERBOSITY level "silent" to suppress log output of ignored rows (Atsushi Torikoshi)
 <ulink url="&commit_baseurl;e7834a1a2">&sect;</ulink>
 </para>
 
@@ -2169,12 +2201,15 @@ Add function PQfullProtocolVersion() to report the full, including minor, protoc
 <!--
 Author: Heikki Linnakangas <heikki.linnakangas@iki.fi>
 2025-04-02 [285613c60] libpq: Add min/max_protocol_version connection options
+Author: Heikki Linnakangas <heikki.linnakangas@iki.fi>
+2025-04-02 [507034910] libpq: Handle NegotiateProtocolVersion message different
 -->
 
 <listitem>
 <para>
 Add libpq connection parameters and environment variables to specify the minimum and maximum acceptable protocol version for connections (Jelte Fennema-Nio)
 <ulink url="&commit_baseurl;285613c60">&sect;</ulink>
+<ulink url="&commit_baseurl;507034910">&sect;</ulink>
 </para>
 </listitem>
 
@@ -3241,7 +3276,7 @@ Author: Fujii Masao <fujii@postgresql.org>
 
 <listitem>
 <para>
-Add REJECT_LIMIT to control the number of invalid rows file_fdw can ignore (Atsushi Torikoshi)
+Add "reject_limit" to control the number of invalid rows file_fdw can ignore (Atsushi Torikoshi)
 <ulink url="&commit_baseurl;6c8f67032">&sect;</ulink>
 </para>
 
