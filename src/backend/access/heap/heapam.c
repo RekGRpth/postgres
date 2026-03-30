@@ -57,7 +57,7 @@
 
 
 static HeapTuple heap_prepare_insert(Relation relation, HeapTuple tup,
-									 TransactionId xid, CommandId cid, int options);
+									 TransactionId xid, CommandId cid, uint32 options);
 static XLogRecPtr log_heap_update(Relation reln, Buffer oldbuf,
 								  Buffer newbuf, HeapTuple oldtup,
 								  HeapTuple newtup, HeapTuple old_key_tuple,
@@ -633,7 +633,8 @@ heap_prepare_pagescan(TableScanDesc sscan)
 	/*
 	 * Prune and repair fragmentation for the whole page, if possible.
 	 */
-	heap_page_prune_opt(scan->rs_base.rs_rd, buffer, &scan->rs_vmbuffer);
+	heap_page_prune_opt(scan->rs_base.rs_rd, buffer, &scan->rs_vmbuffer,
+						sscan->rs_flags & SO_HINT_REL_READ_ONLY);
 
 	/*
 	 * We must hold share lock on the buffer content while examining tuple
@@ -2148,7 +2149,7 @@ ReleaseBulkInsertStatePin(BulkInsertState bistate)
  */
 void
 heap_insert(Relation relation, HeapTuple tup, CommandId cid,
-			int options, BulkInsertState bistate)
+			uint32 options, BulkInsertState bistate)
 {
 	TransactionId xid = GetCurrentTransactionId();
 	HeapTuple	heaptup;
@@ -2339,7 +2340,7 @@ heap_insert(Relation relation, HeapTuple tup, CommandId cid,
  */
 static HeapTuple
 heap_prepare_insert(Relation relation, HeapTuple tup, TransactionId xid,
-					CommandId cid, int options)
+					CommandId cid, uint32 options)
 {
 	/*
 	 * To allow parallel inserts, we need to ensure that they are safe to be
@@ -2419,7 +2420,7 @@ heap_multi_insert_pages(HeapTuple *heaptuples, int done, int ntuples, Size saveF
  */
 void
 heap_multi_insert(Relation relation, TupleTableSlot **slots, int ntuples,
-				  CommandId cid, int options, BulkInsertState bistate)
+				  CommandId cid, uint32 options, BulkInsertState bistate)
 {
 	TransactionId xid = GetCurrentTransactionId();
 	HeapTuple  *heaptuples;
