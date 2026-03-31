@@ -2198,7 +2198,6 @@ vectorize_cflags = cc.get_supported_arguments(['-ftree-vectorize'])
 unroll_loops_cflags = cc.get_supported_arguments(['-funroll-loops'])
 
 common_warning_flags = [
-  '-Wmissing-prototypes',
   '-Wpointer-arith',
   # Really don't want VLAs to be used in our dialect of C
   '-Werror=vla',
@@ -2211,7 +2210,15 @@ common_warning_flags = [
   '-Wformat-security',
 ]
 
-cflags_warn += cc.get_supported_arguments(common_warning_flags)
+# C-only warnings
+c_warning_flags = [
+  '-Wmissing-prototypes',
+  '-Wold-style-declaration',
+  '-Wold-style-definition',
+  '-Wstrict-prototypes',
+]
+
+cflags_warn += cc.get_supported_arguments(common_warning_flags, c_warning_flags)
 if have_cxx
   cxxflags_warn += cxx.get_supported_arguments(common_warning_flags)
 endif
@@ -2252,9 +2259,6 @@ if cc.has_argument('-Wmissing-variable-declarations')
   cflags_no_missing_var_decls += '-Wno-missing-variable-declarations'
 endif
 
-# These are C-only flags, supported in all C11-capable GCC/Clang versions.
-cflags_warn += cc.get_supported_arguments(['-Wstrict-prototypes', '-Wold-style-definition'])
-
 # The following tests want to suppress various unhelpful warnings by adding
 # -Wno-foo switches.  But gcc won't complain about unrecognized -Wno-foo
 # switches, so we have to test for the positive form and if that works,
@@ -2293,26 +2297,44 @@ endforeach
 
 
 if cc.get_id() == 'msvc'
-  cflags_warn += [
+  msvc_common_warning_flags = [
+    # Disable warnings in system headers
+    '/external:anglebrackets',
+    '/external:W0',
+
+    # Warnings to disable:
+    # from /W2:
+    '/wd4244', # conversion from 'type1' to 'type2', possible loss of data
+
+    # Additional warnings to enable:
+    '/w24062', # enumerator 'identifier' in switch of enum 'enumeration' is not handled [like -Wswitch]
+    '/w24102', # unreferenced label [like -Wunused-label]
+  ]
+
+  msvc_c_warning_flags = [
     # Warnings to disable:
     # from /W1:
     '/wd4090', # different 'modifier' qualifiers
-    # from /W2:
-    '/wd4244', # conversion from 'type1' to 'type2', possible loss of data
     # from /W3:
     '/wd4018', # signed/unsigned mismatch
     '/wd4101', # unreferenced local variable [like -Wunused-variable, but there is no "unused" attribute, so too noisy]
     '/wd4267', # conversion from 'size_t' to 'type', possible loss of data
 
     # Additional warnings to enable:
-    '/w24062', # enumerator 'identifier' in switch of enum 'enumeration' is not handled [like -Wswitch]
-    '/w24102', # unreferenced label [like -Wunused-label]
     '/w24255', # 'function' : no function prototype given: converting '()' to '(void)' [like -Wstrict-prototypes]
-
-    # Disable warnings in system headers
-    '/external:anglebrackets',
-    '/external:W0',
   ]
+
+  msvc_cxx_warning_flags = [
+    # Warnings to disable:
+    # from /W2:
+    '/wd4200', # nonstandard extension used: zero-sized array in struct/union [widely used in PostgreSQL C headers]
+  ]
+
+  cflags_warn += msvc_common_warning_flags
+  cflags_warn += msvc_c_warning_flags
+
+  cxxflags_warn += msvc_common_warning_flags
+  cxxflags_warn += msvc_cxx_warning_flags
 
   cppflags += [
     '/DWIN32',

@@ -215,7 +215,7 @@ typedef enum VacOptValue
  */
 typedef struct VacuumParams
 {
-	bits32		options;		/* bitmask of VACOPT_* */
+	uint32		options;		/* bitmask of VACOPT_* */
 	int			freeze_min_age; /* min freeze age, -1 to use default */
 	int			freeze_table_age;	/* age at which to scan whole table */
 	int			multixact_freeze_min_age;	/* min multixact freeze age, -1 to
@@ -362,7 +362,7 @@ extern PGDLLIMPORT int64 parallel_vacuum_worker_delay_ns;
 
 /* in commands/vacuum.c */
 extern void ExecVacuum(ParseState *pstate, VacuumStmt *vacstmt, bool isTopLevel);
-extern void vacuum(List *relations, const VacuumParams params,
+extern void vacuum(List *relations, const VacuumParams *params,
 				   BufferAccessStrategy bstrategy, MemoryContext vac_context,
 				   bool isTopLevel);
 extern void vac_open_indexes(Relation relation, LOCKMODE lockmode,
@@ -383,15 +383,15 @@ extern void vac_update_relstats(Relation relation,
 								bool *frozenxid_updated,
 								bool *minmulti_updated,
 								bool in_outer_xact);
-extern bool vacuum_get_cutoffs(Relation rel, const VacuumParams params,
+extern bool vacuum_get_cutoffs(Relation rel, const VacuumParams *params,
 							   struct VacuumCutoffs *cutoffs);
 extern bool vacuum_xid_failsafe_check(const struct VacuumCutoffs *cutoffs);
 extern void vac_update_datfrozenxid(void);
 extern void vacuum_delay_point(bool is_analyze);
 extern bool vacuum_is_permitted_for_relation(Oid relid, Form_pg_class reltuple,
-											 bits32 options);
+											 uint32 options);
 extern Relation vacuum_open_relation(Oid relid, RangeVar *relation,
-									 bits32 options, bool verbose,
+									 uint32 options, bool verbose,
 									 LOCKMODE lmode);
 extern IndexBulkDeleteResult *vac_bulkdel_one_index(IndexVacuumInfo *ivinfo,
 													IndexBulkDeleteResult *istat,
@@ -426,7 +426,7 @@ extern void parallel_vacuum_main(dsm_segment *seg, shm_toc *toc);
 
 /* in commands/analyze.c */
 extern void analyze_rel(Oid relid, RangeVar *relation,
-						const VacuumParams params, List *va_cols, bool in_outer_xact,
+						const VacuumParams *params, List *va_cols, bool in_outer_xact,
 						BufferAccessStrategy bstrategy);
 extern bool std_typanalyze(VacAttrStats *stats);
 

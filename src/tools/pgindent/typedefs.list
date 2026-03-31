@@ -817,6 +817,7 @@ ExtensionInfo
 ExtensionLocation
 ExtensionSiblingCache
 ExtensionVersionInfo
+FastPathMeta
 FDWCollateState
 FD_SET
 FILE
@@ -3292,6 +3293,7 @@ VacAttrStatsP
 VacDeadItemsInfo
 VacErrPhase
 VacOptValue
+VacuumCutoffs
 VacuumParams
 VacuumRelation
 VacuumStmt
@@ -3591,9 +3593,6 @@ bh_node_type
 binaryheap
 binaryheap_comparator
 bitmapword
-bits16
-bits32
-bits8
 blockreftable_hash
 blockreftable_iterator
 bloom_filter
@@ -4399,6 +4398,7 @@ xl_btree_split
 xl_btree_unlink_page
 xl_btree_update
 xl_btree_vacuum
+xl_checkpoint_redo
 xl_clog_truncate
 xl_commit_ts_truncate
 xl_dbase_create_file_copy_rec
