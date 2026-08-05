@@ -676,8 +676,8 @@ CreateSubscription(ParseState *pstate, CreateSubscriptionStmt *stmt,
 	Datum		values[Natts_pg_subscription];
 	Oid			owner = GetUserId();
 	HeapTuple	tup;
-	Oid			serverid;
-	char	   *conninfo;
+	Oid			serverid = InvalidOid;
+	char	   *conninfo = NULL;
 	char		originname[NAMEDATALEN];
 	List	   *publications;
 	uint32		supported_opts;
@@ -798,29 +798,46 @@ CreateSubscription(ParseState *pstate, CreateSubscriptionStmt *stmt,
 		ForeignServer *server;
 
 		Assert(!stmt->conninfo);
-		conninfo = NULL;
 
 		server = GetForeignServerByName(stmt->servername, false);
-		aclresult = object_aclcheck(ForeignServerRelationId, server->serverid, owner, ACL_USAGE);
+		serverid = server->serverid;
+
+		/* check USAGE privileges on server */
+		aclresult = object_aclcheck(ForeignServerRelationId, serverid, owner, ACL_USAGE);
 		if (aclresult != ACLCHECK_OK)
 			aclcheck_error(aclresult, OBJECT_FOREIGN_SERVER, server->servername);
 
-		/* make sure a user mapping exists */
-		GetUserMapping(owner, server->serverid);
+		/* check user mapping */
+		GetUserMappingExtended(owner, server->serverid, WARNING);
 
-		serverid = server->serverid;
-		conninfo = ForeignServerConnectionString(owner, server);
+		/*
+		 * Check conninfo if connecting; otherwise only check that the
+		 * server's FDW supports connections.
+		 */
+		if (opts.connect)
+		{
+			conninfo = ForeignServerConnectionString(owner, server);
+			walrcv_check_conninfo(conninfo, opts.passwordrequired && !superuser());
+		}
+		else
+		{
+			ForeignDataWrapper *fdw = GetForeignDataWrapper(server->fdwid);
+
+			if (!OidIsValid(fdw->fdwconnection))
+				ereport(ERROR,
+						(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+						 errmsg("foreign-data wrapper \"%s\" does not support subscription connections",
+								fdw->fdwname),
+						 errdetail("Foreign-data wrapper must be defined with CONNECTION specified.")));
+		}
 	}
 	else
 	{
 		Assert(stmt->conninfo);
 
-		serverid = InvalidOid;
 		conninfo = stmt->conninfo;
+		walrcv_check_conninfo(conninfo, opts.passwordrequired && !superuser());
 	}
-
-	/* Check the connection info string. */
-	walrcv_check_conninfo(conninfo, opts.passwordrequired && !superuser());
 
 	publications = stmt->publication;
 
@@ -1087,7 +1104,7 @@ CreateSubscription(ParseState *pstate, CreateSubscriptionStmt *stmt,
 
 static void
 AlterSubscription_refresh(Subscription *sub, bool copy_data,
-						  List *validate_publications)
+						  List *validate_publications, char *conninfo)
 {
 	char	   *err;
 	List	   *pubrels = NIL;
@@ -1111,12 +1128,19 @@ AlterSubscription_refresh(Subscription *sub, bool copy_data,
 	WalReceiverConn *wrconn;
 	bool		must_use_password;
 
+	/*
+	 * Should not happen: CREATE/ALTER/DROP SUBSCRIPTION did not call
+	 * SubscriptionConninfo() in a path where it's required.
+	 */
+	if (!conninfo)
+		elog(ERROR, "no connection string provided for subscription");
+
 	/* Load the library providing us libpq calls. */
 	load_file("libpqwalreceiver", false);
 
 	/* Try to connect to the publisher. */
 	must_use_password = sub->passwordrequired && !sub->ownersuperuser;
-	wrconn = walrcv_connect(sub->conninfo, true, true, must_use_password,
+	wrconn = walrcv_connect(conninfo, true, true, must_use_password,
 							sub->name, &err);
 	if (!wrconn)
 		ereport(ERROR,
@@ -1357,19 +1381,26 @@ AlterSubscription_refresh(Subscription *sub, bool copy_data,
  * Marks all sequences with INIT state.
  */
 static void
-AlterSubscription_refresh_seq(Subscription *sub)
+AlterSubscription_refresh_seq(Subscription *sub, char *conninfo)
 {
 	char	   *err = NULL;
 	WalReceiverConn *wrconn;
 	bool		must_use_password;
 	List	   *subrel_states;
 
+	/*
+	 * Should not happen: CREATE/ALTER/DROP SUBSCRIPTION did not call
+	 * SubscriptionConninfo() in a path where it's required.
+	 */
+	if (!conninfo)
+		elog(ERROR, "no connection string provided for subscription");
+
 	/* Load the library providing us libpq calls. */
 	load_file("libpqwalreceiver", false);
 
 	/* Try to connect to the publisher. */
 	must_use_password = sub->passwordrequired && !sub->ownersuperuser;
-	wrconn = walrcv_connect(sub->conninfo, true, true, must_use_password,
+	wrconn = walrcv_connect(conninfo, true, true, must_use_password,
 							sub->name, &err);
 	if (!wrconn)
 		ereport(ERROR,
@@ -1617,7 +1648,7 @@ AlterSubscription(ParseState *pstate, AlterSubscriptionStmt *stmt,
 	Datum		values[Natts_pg_subscription];
 	HeapTuple	tup;
 	Oid			subid;
-	bool		orig_conninfo_needed = true;
+	bool		orig_conninfo_needed = false;
 	bool		update_tuple = false;
 	bool		update_failover = false;
 	bool		update_two_phase = false;
@@ -1626,6 +1657,7 @@ AlterSubscription(ParseState *pstate, AlterSubscriptionStmt *stmt,
 	int			max_retention;
 	bool		retention_active;
 	char	   *new_conninfo = NULL;
+	char	   *orig_conninfo = NULL;
 	char	   *origin;
 	Subscription *sub;
 	Form_pg_subscription form;
@@ -1698,44 +1730,63 @@ AlterSubscription(ParseState *pstate, AlterSubscriptionStmt *stmt,
 	if (supported_opts > 0)
 		parse_subscription_options(pstate, stmt->options, supported_opts, &opts);
 
-	/*
-	 * Ensure that ALTER SUBSCRIPTION commands that could be used to fix a
-	 * broken connection or prepare to drop a broken subscription don't
-	 * attempt to construct the conninfo. Otherwise, we might encounter the
-	 * error the user is trying to fix.
-	 *
-	 * Specifically, ALTER SUBSCRIPTION DISABLE, ALTER SUBSCRIPTION SERVER,
-	 * ALTER SUBSCRIPTION CONNECTION, or ALTER SUBSCRIPTION SET
-	 * (slot_name=NONE).
-	 *
-	 * NB: if the user specifies multiple SET options, then we may still need
-	 * to construct conninfo even if slot_name is set to NONE.
-	 */
-	if (stmt->kind == ALTER_SUBSCRIPTION_ENABLED)
-	{
-		if (opts.specified_opts == SUBOPT_ENABLED && !opts.enabled)
-			orig_conninfo_needed = false;
-	}
-	else if (stmt->kind == ALTER_SUBSCRIPTION_SERVER ||
-			 stmt->kind == ALTER_SUBSCRIPTION_CONNECTION)
-	{
-		orig_conninfo_needed = false;
-	}
-	else if (stmt->kind == ALTER_SUBSCRIPTION_OPTIONS)
-	{
-		/* ... SET (slot_name = NONE) with no other options */
-		if (opts.specified_opts == SUBOPT_SLOT_NAME && !opts.slot_name)
-			orig_conninfo_needed = false;
-	}
+	sub = GetSubscription(subid, false);
 
 	/*
-	 * Skip ACL checks on the subscription's foreign server, if any. If
-	 * changing the server (or replacing it with a raw connection), then the
-	 * old one will be removed anyway. If changing something unrelated,
-	 * there's no need to do an additional ACL check here; that will be done
-	 * by the subscription worker.
+	 * Determine in advance whether we need the original conninfo or not, so
+	 * that errors are generated consistently in cases where we do need it;
+	 * and not generated at all if we don't.
 	 */
-	sub = GetSubscription(subid, false, orig_conninfo_needed, false);
+
+	/* conninfo needed when refreshing */
+	switch (stmt->kind)
+	{
+		case ALTER_SUBSCRIPTION_REFRESH_PUBLICATION:
+		case ALTER_SUBSCRIPTION_REFRESH_SEQUENCES:
+			orig_conninfo_needed = true;
+			break;
+
+		case ALTER_SUBSCRIPTION_SET_PUBLICATION:
+		case ALTER_SUBSCRIPTION_ADD_PUBLICATION:
+		case ALTER_SUBSCRIPTION_DROP_PUBLICATION:
+			/* opts.refresh defaults to true when the option is supported */
+			orig_conninfo_needed = opts.refresh;
+			break;
+
+		case ALTER_SUBSCRIPTION_OPTIONS:
+			{
+				if (sub->slotname)
+				{
+					if (IsSet(opts.specified_opts, SUBOPT_FAILOVER))
+						orig_conninfo_needed = true;
+					if (IsSet(opts.specified_opts, SUBOPT_TWOPHASE_COMMIT) &&
+						!opts.twophase)
+						orig_conninfo_needed = true;
+				}
+
+				if (IsSet(opts.specified_opts, SUBOPT_RETAIN_DEAD_TUPLES) &&
+					opts.retaindeadtuples)
+					orig_conninfo_needed = true;
+
+				if (IsSet(opts.specified_opts, SUBOPT_ORIGIN))
+				{
+					bool		rdt;
+
+					rdt = IsSet(opts.specified_opts, SUBOPT_RETAIN_DEAD_TUPLES) ?
+						opts.retaindeadtuples : sub->retaindeadtuples;
+
+					if (rdt && pg_strcasecmp(opts.origin, LOGICALREP_ORIGIN_ANY) == 0)
+						orig_conninfo_needed = true;
+				}
+			}
+			break;
+
+		default:
+			break;
+	}
+
+	if (orig_conninfo_needed)
+		orig_conninfo = SubscriptionConninfo(sub);
 
 	retain_dead_tuples = sub->retaindeadtuples;
 	origin = sub->origin;
@@ -2123,8 +2174,8 @@ AlterSubscription(ParseState *pstate, AlterSubscriptionStmt *stmt,
 								   GetUserNameFromId(form->subowner, false),
 								   new_server->servername));
 
-				/* make sure a user mapping exists */
-				GetUserMapping(form->subowner, new_server->serverid);
+				/* check user mapping */
+				GetUserMappingExtended(form->subowner, new_server->serverid, WARNING);
 
 				new_conninfo = ForeignServerConnectionString(form->subowner,
 															 new_server);
@@ -2218,7 +2269,8 @@ AlterSubscription(ParseState *pstate, AlterSubscriptionStmt *stmt,
 					sub->publications = stmt->publication;
 
 					AlterSubscription_refresh(sub, opts.copy_data,
-											  stmt->publication);
+											  stmt->publication,
+											  orig_conninfo);
 				}
 
 				break;
@@ -2273,7 +2325,8 @@ AlterSubscription(ParseState *pstate, AlterSubscriptionStmt *stmt,
 					sub->publications = publist;
 
 					AlterSubscription_refresh(sub, opts.copy_data,
-											  validate_publications);
+											  validate_publications,
+											  orig_conninfo);
 				}
 
 				break;
@@ -2312,7 +2365,8 @@ AlterSubscription(ParseState *pstate, AlterSubscriptionStmt *stmt,
 
 				PreventInTransactionBlock(isTopLevel, "ALTER SUBSCRIPTION ... REFRESH PUBLICATION");
 
-				AlterSubscription_refresh(sub, opts.copy_data, NULL);
+				AlterSubscription_refresh(sub, opts.copy_data, NULL,
+										  orig_conninfo);
 
 				break;
 			}
@@ -2325,7 +2379,7 @@ AlterSubscription(ParseState *pstate, AlterSubscriptionStmt *stmt,
 							errmsg("%s is not allowed for disabled subscriptions",
 								   "ALTER SUBSCRIPTION ... REFRESH SEQUENCES"));
 
-				AlterSubscription_refresh_seq(sub);
+				AlterSubscription_refresh_seq(sub, orig_conninfo);
 
 				break;
 			}
@@ -2397,7 +2451,7 @@ AlterSubscription(ParseState *pstate, AlterSubscriptionStmt *stmt,
 		char	   *err;
 		WalReceiverConn *wrconn;
 
-		Assert(new_conninfo || orig_conninfo_needed);
+		Assert(new_conninfo || orig_conninfo);
 
 		/* Load the library providing us libpq calls. */
 		load_file("libpqwalreceiver", false);
@@ -2407,7 +2461,7 @@ AlterSubscription(ParseState *pstate, AlterSubscriptionStmt *stmt,
 		 * available.
 		 */
 		must_use_password = sub->passwordrequired && !sub->ownersuperuser;
-		wrconn = walrcv_connect(new_conninfo ? new_conninfo : sub->conninfo,
+		wrconn = walrcv_connect(new_conninfo ? new_conninfo : orig_conninfo,
 								true, true, must_use_password, sub->name,
 								&err);
 		if (!wrconn)
@@ -2939,35 +2993,15 @@ AlterSubscriptionOwner_internal(Relation rel, HeapTuple tup, Oid newOwnerId)
 					   get_database_name(MyDatabaseId));
 
 	/*
-	 * If the subscription uses a server, check that the new owner has USAGE
-	 * privileges on the server, that a user mapping exists, and that the
-	 * resulting connection string is valid for the new owner.
+	 * The privileges will be checked before the connection is actually used,
+	 * so it does not need to be done here. Avoid unnecessary risk of errors
+	 * here, which could interfere with restore.
+	 *
+	 * However, it is convenient to check if a user mapping exists, and raise
+	 * a WARNING if not.
 	 */
 	if (OidIsValid(form->subserver))
-	{
-		char	   *conninfo;
-		ForeignServer *server = GetForeignServer(form->subserver);
-
-		aclresult = object_aclcheck(ForeignServerRelationId, server->serverid, newOwnerId, ACL_USAGE);
-		if (aclresult != ACLCHECK_OK)
-			ereport(ERROR,
-					errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
-					errmsg("new subscription owner \"%s\" does not have permission on foreign server \"%s\"",
-						   GetUserNameFromId(newOwnerId, false),
-						   server->servername));
-
-		/* make sure a user mapping exists */
-		GetUserMapping(newOwnerId, server->serverid);
-
-		conninfo = ForeignServerConnectionString(newOwnerId, server);
-
-		/* Load the library providing us libpq calls. */
-		load_file("libpqwalreceiver", false);
-		/* Check the connection info string. */
-		walrcv_check_conninfo(conninfo,
-							  form->subpasswordrequired &&
-							  !superuser_arg(newOwnerId));
-	}
+		GetUserMappingExtended(newOwnerId, form->subserver, WARNING);
 
 	form->subowner = newOwnerId;
 	CatalogTupleUpdate(rel, &tup->t_self, tup);
