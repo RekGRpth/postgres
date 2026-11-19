@@ -107,6 +107,19 @@ select pgstattuple((select reltoastrelid from pg_class where relname = 'test'));
 select pgstattuple_approx((select reltoastrelid from pg_class where relname = 'test'));
 select pg_relpages((select reltoastrelid from pg_class where relname = 'test'));
 
+-- An unknown approximate tuple count is reported as zero.
+begin;
+create temp table test_approx_unknown (id int);
+copy test_approx_unknown from stdin with (freeze);
+1
+\.
+commit;
+begin;
+set local debug_parallel_query = off;
+select scanned_percent, approx_tuple_count
+  from pgstattuple_approx('test_approx_unknown');
+commit;
+
 -- not for the index calls though, of course
 select pgstatindex('test_partition');
 select pgstatginindex('test_partition');
