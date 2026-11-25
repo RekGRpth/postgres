@@ -89,10 +89,14 @@ typedef struct GinBuildShared
 	 * reltuples is the total number of input heap tuples.
 	 *
 	 * indtuples is the total number of tuples that made it into the index.
+	 *
+	 * brokenhotchain indicates if any worker detected a broken HOT chain
+	 * during build.
 	 */
 	int			nparticipantsdone;
 	double		reltuples;
 	double		indtuples;
+	bool		brokenhotchain;
 
 	/*
 	 * ParallelTableScanDescData data follows. Can't directly embed here, as
@@ -188,8 +192,10 @@ static void _gin_begin_parallel(GinBuildState *buildstate, Relation heap, Relati
 								bool isconcurrent, int request);
 static void _gin_end_parallel(GinLeader *ginleader, GinBuildState *state);
 static Size _gin_parallel_estimate_shared(Relation heap, Snapshot snapshot);
-static double _gin_parallel_heapscan(GinBuildState *state);
-static double _gin_parallel_merge(GinBuildState *state);
+static double _gin_parallel_heapscan(GinBuildState *state,
+									 bool *brokenhotchain);
+static double _gin_parallel_merge(GinBuildState *state,
+								  IndexInfo *indexInfo);
 static void _gin_leader_participate_as_worker(GinBuildState *buildstate,
 											  Relation heap, Relation index);
 static void _gin_parallel_scan_and_build(GinBuildState *state,
@@ -747,7 +753,7 @@ ginbuild(Relation heap, Relation index, IndexInfo *indexInfo)
 									  TUPLESORT_NONE);
 
 		/* scan the relation in parallel and merge per-worker results */
-		reltuples = _gin_parallel_merge(state);
+		reltuples = _gin_parallel_merge(state, indexInfo);
 
 		_gin_end_parallel(state->bs_leader, state);
 	}
@@ -1039,6 +1045,7 @@ _gin_begin_parallel(GinBuildState *buildstate, Relation heap, Relation index,
 	ginshared->nparticipantsdone = 0;
 	ginshared->reltuples = 0.0;
 	ginshared->indtuples = 0.0;
+	ginshared->brokenhotchain = false;
 
 	table_parallelscan_initialize(heap,
 								  ParallelTableScanFromGinBuildShared(ginshared),
@@ -1141,10 +1148,11 @@ _gin_end_parallel(GinLeader *ginleader, GinBuildState *state)
  * already be underway within worker processes (when leader participates
  * as a worker, we should end up here just as workers are finishing).
  *
- * Returns the total number of heap tuples scanned.
+ * Returns the total number of heap tuples scanned.  Also sets *brokenhotchain
+ * to whether any participant detected a broken HOT chain.
  */
 static double
-_gin_parallel_heapscan(GinBuildState *state)
+_gin_parallel_heapscan(GinBuildState *state, bool *brokenhotchain)
 {
 	GinBuildShared *ginshared = state->bs_leader->ginshared;
 	int			nparticipanttuplesorts;
@@ -1158,6 +1166,7 @@ _gin_parallel_heapscan(GinBuildState *state)
 			/* copy the data into leader state */
 			state->bs_reltuples = ginshared->reltuples;
 			state->bs_numtuples = ginshared->indtuples;
+			*brokenhotchain = ginshared->brokenhotchain;
 
 			SpinLockRelease(&ginshared->mutex);
 			break;
@@ -1634,18 +1643,17 @@ GinBufferCanAddKey(GinBuffer *buffer, GinTuple *tup)
 }
 
 /*
- * Within leader, wait for end of heap scan and merge per-worker results.
+ * Wait for all participants to finish the heap scan, then merge their
+ * sorted GIN tuples in the leader.  Combine TID lists for the same index
+ * attribute, null category, and key, writing the TIDs to the index in
+ * batches.
  *
- * After waiting for all workers to finish, merge the per-worker results into
- * the complete index. The results from each worker are sorted by block number
- * (start of the page range). While combining the per-worker results we merge
- * summaries for the same page range, and also fill-in empty summaries for
- * ranges without any tuples.
- *
- * Returns the total number of heap tuples scanned.
+ * Return the total number of live heap tuples reported by the participants.
+ * Set indexInfo->ii_BrokenHotChain if any participant detected a potentially
+ * broken HOT chain.
  */
 static double
-_gin_parallel_merge(GinBuildState *state)
+_gin_parallel_merge(GinBuildState *state, IndexInfo *indexInfo)
 {
 	GinTuple   *tup;
 	Size		tuplen;
@@ -1656,7 +1664,7 @@ _gin_parallel_merge(GinBuildState *state)
 	double		numtuples = 0;
 
 	/* wait for workers to scan table and produce partial results */
-	reltuples = _gin_parallel_heapscan(state);
+	reltuples = _gin_parallel_heapscan(state, &indexInfo->ii_BrokenHotChain);
 
 	/* Execute the sort */
 	pgstat_progress_update_param(PROGRESS_CREATEIDX_SUBPHASE,
@@ -2084,12 +2092,15 @@ _gin_parallel_scan_and_build(GinBuildState *state,
 	state->bs_reltuples += reltuples;
 
 	/*
-	 * Done.  Record ambuild statistics.
+	 * Done.  Record ambuild statistics, and whether we encountered a broken
+	 * HOT chain.
 	 */
 	SpinLockAcquire(&ginshared->mutex);
 	ginshared->nparticipantsdone++;
 	ginshared->reltuples += state->bs_reltuples;
 	ginshared->indtuples += state->bs_numtuples;
+	if (indexInfo->ii_BrokenHotChain)
+		ginshared->brokenhotchain = true;
 	SpinLockRelease(&ginshared->mutex);
 
 	/* Notify leader */

@@ -99,10 +99,14 @@ typedef struct BrinShared
 	 * reltuples is the total number of input heap tuples.
 	 *
 	 * indtuples is the total number of tuples that made it into the index.
+	 *
+	 * brokenhotchain indicates if any worker detected a broken HOT chain
+	 * during build.
 	 */
 	int			nparticipantsdone;
 	double		reltuples;
 	double		indtuples;
+	bool		brokenhotchain;
 
 	/*
 	 * ParallelTableScanDescData data follows. Can't directly embed here, as
@@ -236,8 +240,10 @@ static void _brin_begin_parallel(BrinBuildState *buildstate, Relation heap, Rela
 								 bool isconcurrent, int request);
 static void _brin_end_parallel(BrinLeader *brinleader, BrinBuildState *state);
 static Size _brin_parallel_estimate_shared(Relation heap, Snapshot snapshot);
-static double _brin_parallel_heapscan(BrinBuildState *state);
-static double _brin_parallel_merge(BrinBuildState *state);
+static double _brin_parallel_heapscan(BrinBuildState *state,
+									  bool *brokenhotchain);
+static double _brin_parallel_merge(BrinBuildState *state,
+								   IndexInfo *indexInfo);
 static void _brin_leader_participate_as_worker(BrinBuildState *buildstate,
 											   Relation heap, Relation index);
 static void _brin_parallel_scan_and_build(BrinBuildState *state,
@@ -1223,7 +1229,7 @@ brinbuild(Relation heap, Relation index, IndexInfo *indexInfo)
 									   TUPLESORT_NONE);
 
 		/* scan the relation and merge per-worker results */
-		reltuples = _brin_parallel_merge(state);
+		reltuples = _brin_parallel_merge(state, indexInfo);
 
 		_brin_end_parallel(state->bs_leader, state);
 	}
@@ -2483,6 +2489,7 @@ _brin_begin_parallel(BrinBuildState *buildstate, Relation heap, Relation index,
 	brinshared->nparticipantsdone = 0;
 	brinshared->reltuples = 0.0;
 	brinshared->indtuples = 0.0;
+	brinshared->brokenhotchain = false;
 
 	table_parallelscan_initialize(heap,
 								  ParallelTableScanFromBrinShared(brinshared),
@@ -2589,10 +2596,11 @@ _brin_end_parallel(BrinLeader *brinleader, BrinBuildState *state)
  * already be underway within worker processes (when leader participates
  * as a worker, we should end up here just as workers are finishing).
  *
- * Returns the total number of heap tuples scanned.
+ * Returns the total number of heap tuples scanned.  Also sets *brokenhotchain
+ * to whether any participant detected a broken HOT chain.
  */
 static double
-_brin_parallel_heapscan(BrinBuildState *state)
+_brin_parallel_heapscan(BrinBuildState *state, bool *brokenhotchain)
 {
 	BrinShared *brinshared = state->bs_leader->brinshared;
 	int			nparticipanttuplesorts;
@@ -2606,6 +2614,7 @@ _brin_parallel_heapscan(BrinBuildState *state)
 			/* copy the data into leader state */
 			state->bs_reltuples = brinshared->reltuples;
 			state->bs_numtuples = brinshared->indtuples;
+			*brokenhotchain = brinshared->brokenhotchain;
 
 			SpinLockRelease(&brinshared->mutex);
 			break;
@@ -2622,18 +2631,17 @@ _brin_parallel_heapscan(BrinBuildState *state)
 }
 
 /*
- * Within leader, wait for end of heap scan and merge per-worker results.
+ * Wait for all participants to finish producing their partial summaries.
+ * In the leader, read the summaries in block range order and combine those
+ * for the same range.  Write one summary per range, using an empty summary
+ * for any range with no indexed tuples.
  *
- * After waiting for all workers to finish, merge the per-worker results into
- * the complete index. The results from each worker are sorted by block number
- * (start of the page range). While combining the per-worker results we merge
- * summaries for the same page range, and also fill-in empty summaries for
- * ranges without any tuples.
- *
- * Returns the total number of heap tuples scanned.
+ * Return the total number of live heap tuples reported by the participants.
+ * Set indexInfo->ii_BrokenHotChain if any participant detected a potentially
+ * broken HOT chain.
  */
 static double
-_brin_parallel_merge(BrinBuildState *state)
+_brin_parallel_merge(BrinBuildState *state, IndexInfo *indexInfo)
 {
 	BrinTuple  *btup;
 	BrinMemTuple *memtuple = NULL;
@@ -2644,7 +2652,8 @@ _brin_parallel_merge(BrinBuildState *state)
 	double		reltuples;
 
 	/* wait for workers to scan table and produce partial results */
-	reltuples = _brin_parallel_heapscan(state);
+	reltuples = _brin_parallel_heapscan(state,
+										&indexInfo->ii_BrokenHotChain);
 
 	/* do the actual sort in the leader */
 	tuplesort_performsort(state->bs_sortstate);
@@ -2859,12 +2868,15 @@ _brin_parallel_scan_and_build(BrinBuildState *state,
 	state->bs_reltuples += reltuples;
 
 	/*
-	 * Done.  Record ambuild statistics.
+	 * Done.  Record ambuild statistics, and whether we encountered a broken
+	 * HOT chain.
 	 */
 	SpinLockAcquire(&brinshared->mutex);
 	brinshared->nparticipantsdone++;
 	brinshared->reltuples += state->bs_reltuples;
 	brinshared->indtuples += state->bs_numtuples;
+	if (indexInfo->ii_BrokenHotChain)
+		brinshared->brokenhotchain = true;
 	SpinLockRelease(&brinshared->mutex);
 
 	/* Notify leader */
